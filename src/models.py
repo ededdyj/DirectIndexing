@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+from datetime import date, datetime
+from enum import Enum
+from typing import List, Optional
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class Term(str, Enum):
+    SHORT = "ST"
+    LONG = "LT"
+
+
+class Holding(BaseModel):
+    symbol: str
+    qty: float = Field(..., gt=0)
+    price: Optional[float] = Field(default=None, gt=0)
+    market_value: Optional[float] = Field(default=None, ge=0)
+
+    @field_validator("symbol")
+    @classmethod
+    def uppercase_symbol(cls, v: str) -> str:
+        return v.upper().strip()
+
+
+class Lot(BaseModel):
+    lot_id: str
+    symbol: str
+    acquired_date: date
+    qty: float = Field(..., gt=0)
+    basis_total: float = Field(..., ge=0)
+    covered: Optional[bool] = None
+
+    term: Term = Field(default=Term.SHORT)
+
+    @field_validator("symbol")
+    @classmethod
+    def uppercase_symbol(cls, v: str) -> str:
+        return v.upper().strip()
+
+    @model_validator(mode="after")
+    def derive_term(self) -> "Lot":
+        cutoff = date.today().toordinal() - 365
+        if self.acquired_date.toordinal() <= cutoff:
+            self.term = Term.LONG
+        else:
+            self.term = Term.SHORT
+        return self
+
+    @property
+    def basis_per_share(self) -> float:
+        return self.basis_total / self.qty if self.qty else 0.0
+
+
+class TLHCandidate(BaseModel):
+    symbol: str
+    lot_id: str
+    qty: float
+    basis_total: float
+    current_value: float
+    unrealized_pl: float
+    pl_pct: float
+    term: Term
+    notes: List[str] = Field(default_factory=list)
+
+
+class OrderChecklistRow(BaseModel):
+    symbol: str
+    side: str
+    qty: float
+    limit_price: Optional[float] = None
+    rationale: Optional[str] = None
+
+
+class Proposal(BaseModel):
+    sells: List[OrderChecklistRow]
+    buys: List[OrderChecklistRow]
+    expected_realized_loss: float
+    notes: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ReplacementBasket(BaseModel):
+    symbol: str
+    weight: float
+
+
+class Trade(BaseModel):
+    symbol: str
+    side: str
+    trade_date: date
+    qty: float
