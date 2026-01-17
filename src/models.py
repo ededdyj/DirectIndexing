@@ -153,3 +153,32 @@ class GainsLossesParseResult(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     detected_format: str = "E*TRADE Gains & Losses"
     header: List[str] = Field(default_factory=list)
+
+
+class SellLotRecommendation(BaseModel):
+    symbol: str
+    lot_id: str
+    acquired_date: Optional[date]
+    qty: float
+    price: float
+    proceeds: float
+    basis: float
+    gain_loss: float
+    term: Term
+    estimated_tax: float
+    rationale: List[str] = Field(default_factory=list)
+
+
+class WithdrawalProposal(BaseModel):
+    requested_amount: float
+    buffer_amount: float
+    cash_available: float
+    amount_needed_from_sales: float
+    total_expected_proceeds: float
+    estimated_realized_st: float
+    estimated_realized_lt: float
+    estimated_tax_cost: float
+    sells: List[SellLotRecommendation]
+    warnings: List[str] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)
+    drift_metrics: List[str] = Field(default_factory=list)

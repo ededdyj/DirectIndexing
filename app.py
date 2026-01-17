@@ -20,6 +20,11 @@ from src.portfolio.replacements import (
     load_sector_map,
 )
 from src.portfolio.proposals import build_proposal, export_order_checklist
+from src.portfolio.withdrawals import (
+    TaxRates,
+    build_withdrawal_proposal,
+    format_withdrawal_order_csv,
+)
 from src.portfolio.tax_context import (
     GOAL_OFFSET_GAINS,
     GOAL_OPPORTUNISTIC,
@@ -229,83 +234,227 @@ if issue_entries:
 else:
     st.success("Data health checks passed. TLH enabled.")
 
-candidates = identify_candidates(
-    holdings,
-    lots,
-    loss_threshold=loss_threshold,
-    loss_pct_threshold=loss_pct_threshold / 100,
-    max_candidates=max_candidates,
-    trades=trades,
-    realized_summary=realized_summary,
-    tlh_goal=tlh_goal,
-    loss_target=loss_target_value,
-)
+tlh_tab, withdrawal_tab = st.tabs(["TLH Engine", "Withdrawal Planner"])
 
-if not candidates:
-    st.info("No TLH candidates match the filters.")
-    st.stop()
-
-st.subheader("TLH candidates")
-
-candidate_df = pd.DataFrame(
-    [
-        {
-            "symbol": c.symbol,
-            "lot_id": c.lot_id,
-            "qty": c.qty,
-            "current_value": format_currency(c.current_value),
-            "basis_total": format_currency(c.basis_total),
-            "unrealized_pl": format_currency(c.unrealized_pl),
-            "pl_pct": format_pct(c.pl_pct),
-            "term": c.term.value,
-            "notes": "; ".join(c.notes),
-        }
-        for c in candidates
-    ]
-)
-st.dataframe(candidate_df)
-
-candidate_map = {c.lot_id: c for c in candidates}
-selected_ids = st.multiselect(
-    "Select lots to harvest",
-    options=list(candidate_map.keys()),
-    format_func=lambda lot_id: f"{candidate_map[lot_id].symbol} | {lot_id}",
-)
-
-if not selected_ids:
-    st.stop()
-
-selected_candidates = [candidate_map[i] for i in selected_ids]
-
-replacement_plan = {}
-for candidate in selected_candidates:
-    sector = infer_sector(candidate.symbol, sector_map)
-    replacement_plan[candidate.symbol] = build_replacement_basket(
-        candidate.symbol,
-        sector=sector,
-        target_value=candidate.current_value,
+with tlh_tab:
+    st.subheader("TLH candidates")
+    candidates = identify_candidates(
+        holdings,
+        lots,
+        loss_threshold=loss_threshold,
+        loss_pct_threshold=loss_pct_threshold / 100,
+        max_candidates=max_candidates,
+        trades=trades,
+        realized_summary=realized_summary,
+        tlh_goal=tlh_goal,
+        loss_target=loss_target_value,
     )
 
-proposal = build_proposal(selected_candidates, replacement_plan)
+    if not candidates:
+        st.info("No TLH candidates match the filters.")
+    else:
+        candidate_df = pd.DataFrame(
+            [
+                {
+                    "symbol": c.symbol,
+                    "lot_id": c.lot_id,
+                    "qty": c.qty,
+                    "current_value": format_currency(c.current_value),
+                    "basis_total": format_currency(c.basis_total),
+                    "unrealized_pl": format_currency(c.unrealized_pl),
+                    "pl_pct": format_pct(c.pl_pct),
+                    "term": c.term.value,
+                    "notes": "; ".join(c.notes),
+                }
+                for c in candidates
+            ]
+        )
+        st.dataframe(candidate_df)
 
-st.subheader("Proposal summary")
-st.metric(
-    "Expected realized loss",
-    format_currency(proposal.expected_realized_loss),
-)
-if proposal.notes:
-    st.write("Notes:")
-    for note in proposal.notes:
-        st.write("-", note)
-if proposal.warnings:
-    st.warning("Warnings:")
-    for warn in proposal.warnings:
-        st.write("-", warn)
+        candidate_map = {c.lot_id: c for c in candidates}
+        selected_ids = st.multiselect(
+            "Select lots to harvest",
+            options=list(candidate_map.keys()),
+            format_func=lambda lot_id: f"{candidate_map[lot_id].symbol} | {lot_id}",
+            key="tlh_selection",
+        )
 
-checklist_csv = export_order_checklist(proposal)
-st.download_button(
-    label="Download order checklist CSV",
-    data=checklist_csv,
-    file_name=f"tlh_order_checklist_{datetime.utcnow().date()}.csv",
-    mime="text/csv",
-)
+        if not selected_ids:
+            st.info("Select at least one lot to build an order checklist.")
+        else:
+            selected_candidates = [candidate_map[i] for i in selected_ids]
+
+            replacement_plan = {}
+            for candidate in selected_candidates:
+                sector = infer_sector(candidate.symbol, sector_map)
+                replacement_plan[candidate.symbol] = build_replacement_basket(
+                    candidate.symbol,
+                    sector=sector,
+                    target_value=candidate.current_value,
+                )
+
+            proposal = build_proposal(selected_candidates, replacement_plan)
+
+            st.subheader("Proposal summary")
+            st.metric(
+                "Expected realized loss",
+                format_currency(proposal.expected_realized_loss),
+            )
+            if proposal.notes:
+                st.write("Notes:")
+                for note in proposal.notes:
+                    st.write("-", note)
+            if proposal.warnings:
+                st.warning("Warnings:")
+                for warn in proposal.warnings:
+                    st.write("-", warn)
+
+            checklist_csv = export_order_checklist(proposal)
+            st.download_button(
+                label="Download order checklist CSV",
+                data=checklist_csv,
+                file_name=f"tlh_order_checklist_{datetime.utcnow().date()}.csv",
+                mime="text/csv",
+            )
+
+with withdrawal_tab:
+    st.subheader("Withdrawal Planner")
+    withdrawal_amount = st.number_input(
+        "Withdrawal amount ($)", min_value=0.0, value=0.0, step=100.0
+    )
+    buffer_pct = (
+        st.number_input("Cash buffer (%)", min_value=0.0, value=1.0, step=0.5) / 100.0
+    )
+    manual_cash = st.number_input(
+        "Additional cash available ($)", min_value=0.0, value=0.0, step=100.0
+    )
+
+    st.markdown("**Tax rate assumptions**")
+    tax_cols = st.columns(3)
+    st_rate = tax_cols[0].number_input(
+        "Short-term marginal rate (%)", min_value=0.0, max_value=70.0, value=32.0
+    )
+    lt_rate = tax_cols[1].number_input(
+        "Long-term capital gains rate (%)", min_value=0.0, max_value=50.0, value=15.0
+    )
+    state_rate = tax_cols[2].number_input(
+        "State tax rate (%)", min_value=0.0, max_value=20.0, value=5.0
+    )
+
+    goal_map = {
+        "Minimize taxes (default)": "min_tax",
+        "Balanced": "balanced",
+        "Minimize drift to benchmark": "min_drift",
+    }
+    goal_choice = st.selectbox(
+        "Liquidation goal",
+        options=list(goal_map.keys()),
+        index=0,
+    )
+    exclude_symbols = st.multiselect(
+        "Exclude symbols from selling",
+        options=sorted({h.symbol for h in holdings}),
+    )
+    exclude_missing_dates = st.checkbox(
+        "Exclude lots with missing acquired date (--)", value=True
+    )
+
+    if withdrawal_amount <= 0:
+        st.info("Enter a withdrawal amount to generate recommendations.")
+    else:
+        tax_rates = TaxRates(
+            short_term=st_rate / 100.0,
+            long_term=lt_rate / 100.0,
+            state=state_rate / 100.0,
+        )
+        proposal = build_withdrawal_proposal(
+            holdings,
+            lots,
+            realized_summary,
+            withdrawal_amount=withdrawal_amount,
+            cushion_pct=buffer_pct,
+            manual_cash=manual_cash,
+            tax_rates=tax_rates,
+            goal=goal_map[goal_choice],
+            exclude_symbols=exclude_symbols,
+            exclude_missing_dates=exclude_missing_dates,
+        )
+
+        summary_cols = st.columns(3)
+        summary_cols[0].metric(
+            "Cash available",
+            format_currency(proposal.cash_available),
+        )
+        summary_cols[1].metric(
+            "Needed from sells",
+            format_currency(proposal.amount_needed_from_sales),
+        )
+        summary_cols[2].metric(
+            "Estimated tax cost",
+            format_currency(proposal.estimated_tax_cost),
+        )
+
+        st.metric(
+            "Expected proceeds",
+            format_currency(proposal.total_expected_proceeds),
+        )
+        st.metric(
+            "Est. ST realized",
+            format_currency(proposal.estimated_realized_st),
+        )
+        st.metric(
+            "Est. LT realized",
+            format_currency(proposal.estimated_realized_lt),
+        )
+
+        if proposal.warnings:
+            st.warning("Withdrawal warnings:")
+            for warn in proposal.warnings:
+                st.write("-", warn)
+
+        if not proposal.sells:
+            st.info("No sale recommendations needed given inputs.")
+        else:
+            sell_df = pd.DataFrame(
+                [
+                    {
+                        "symbol": sell.symbol,
+                        "lot_id": sell.lot_id,
+                        "acquired_date": sell.acquired_date,
+                        "qty": sell.qty,
+                        "price": sell.price,
+                        "proceeds": sell.proceeds,
+                        "basis": sell.basis,
+                        "gain_loss": sell.gain_loss,
+                        "term": sell.term.value,
+                        "estimated_tax": sell.estimated_tax,
+                        "rationale": "; ".join(sell.rationale),
+                    }
+                    for sell in proposal.sells
+                ]
+            )
+            st.dataframe(sell_df)
+
+            with st.expander("Why these sells?"):
+                st.write(
+                    "Loss lots (short-term first, then long-term) are prioritized to offset current gains."
+                )
+                st.write(
+                    "Long-term gain lots are next because of preferential rates, while short-term gains are last resort."
+                )
+                if proposal.drift_metrics:
+                    st.write("Portfolio drift checks:")
+                    for note in proposal.drift_metrics:
+                        st.write("-", note)
+                if missing_gains_report:
+                    st.write(
+                        "Gains & Losses report missing—tax estimates assume $0 realized gains so far."
+                    )
+
+            withdrawal_csv = format_withdrawal_order_csv(proposal)
+            st.download_button(
+                label="Download withdrawal order checklist",
+                data=withdrawal_csv,
+                file_name=f"withdrawal_orders_{datetime.utcnow().date()}.csv",
+                mime="text/csv",
+            )

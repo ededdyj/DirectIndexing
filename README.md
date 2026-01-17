@@ -62,6 +62,13 @@ The app opens in your browser. Use the sidebar to upload CSVs and adjust TLH thr
 - Money-market holdings are flagged as cash equivalents, excluded from lot-matching requirements, and treated as cash in downstream analytics. This prevents cash sweep funds (VMFXX, SPAXX, etc.) from blocking TLH analysis.
 - The sidebar now includes a “Goal for TLH this year” control. Choosing **Offset realized gains** activates a loss target equal to the net positive gains in the uploaded report; the app stops suggesting new lots once the projected losses meet that budget (within tolerance). Selecting **Harvest opportunistically** bypasses the target and simply surfaces the best remaining loss opportunities.
 
+## Withdrawal Planner
+- The new Withdrawal Planner tab helps raise cash for withdrawals in a tax-aware, benchmark-aware way. Provide a withdrawal dollar target, optional cash buffer, and (if needed) manual cash already available; the planner uses cash equivalents first and only recommends sells when necessary.
+- **Best-practice ordering:** lots are evaluated using a MinTax-inspired hierarchy—short-term loss lots first, then long-term losses, then long-term gains (highest basis first), and finally short-term gains as a last resort. Specific lots are selected to minimize estimated tax cost while preserving exposures.
+- **Tax context integration:** if the Gains & Losses CSV is uploaded, the planner knows current ST/LT gains and prioritizes harvesting losses to offset the highest-rate gains. Without the report, it assumes $0 realized gains and displays a warning that tax impact is approximate.
+- **Portfolio drift guardrails:** sells are compared against each holding’s weight; optional liquidation goals let users minimize taxes, minimize benchmark drift, or take a balanced approach. Drift metrics are reported alongside the recommendations.
+- **Explainability and export:** every recommended lot shows proceeds, basis, gain/loss, estimated tax, and rationale (“loss lot to offset gains,” “long-term gain lot,” etc.). The “Why these sells?” panel summarizes the ordering logic and drift results, and users can export a sell-only order checklist CSV for manual execution.
+
 ## CSV expectations
 All headers are normalized (lowercase, underscores), and common synonyms are mapped automatically. The tables below describe the fallback single-table uploads; prefer the combined E*TRADE Portfolio Download format when possible.
 
@@ -106,4 +113,4 @@ pytest
 Use these as templates for formatting, not as real data.
 
 ## Changelog
-- **2026-01-17** Added native support for E*TRADE Portfolio Download (PositionsSimple) exports, Gains & Losses uploads, tax-context driven TLH goals, manual health-check overrides, and money-market detection for cash equivalents.
+- **2026-01-17** Added native support for E*TRADE Portfolio Download (PositionsSimple) exports, Gains & Losses uploads, tax-context driven TLH goals, manual health-check overrides, money-market detection for cash equivalents, and the Withdrawal Planner (tax-aware liquidation).
