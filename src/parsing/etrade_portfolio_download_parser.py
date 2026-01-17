@@ -14,6 +14,7 @@ from src.models import (
 )
 from src.utils.dates import parse_date
 from src.utils.money import safe_float
+from src.utils.securities import is_money_market_symbol
 
 from .common import ParsingError
 
@@ -159,6 +160,7 @@ def _parse_positions(lines: Sequence[str]) -> Tuple[List[Holding], List[Lot], Li
                 price=price,
                 market_value=market_value,
                 cost_basis_total=cost_basis,
+                is_cash_equivalent=is_money_market_symbol(symbol),
             )
             holdings.append(holding)
             current_symbol = symbol

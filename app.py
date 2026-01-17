@@ -1,3 +1,4 @@
+import hashlib
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -133,12 +134,26 @@ col1.dataframe(pd.DataFrame([h.dict() for h in holdings]))
 col2.dataframe(pd.DataFrame([l.dict() for l in lots]))
 
 health = run_health_checks(holdings, lots)
-issues = health["quantity_mismatches"] + health["missing_basis"]
-if issues:
-    st.error("Health checks failed. Fix data before running TLH.")
-    for issue in issues:
-        st.write("-", issue)
-    st.stop()
+issue_entries = []
+for category, messages in health.items():
+    for message in messages:
+        issue_entries.append((category, message))
+
+if issue_entries:
+    st.error(
+        "Health checks flagged issues. Approve each item to proceed (manual override)."
+    )
+    approvals = []
+    for idx, (category, message) in enumerate(issue_entries):
+        label = f"{category.replace('_', ' ').title()}: {message}"
+        digest = hashlib.sha1(label.encode("utf-8")).hexdigest()[:8]
+        checkbox_key = f"health_issue_{idx}_{digest}"
+        approved = st.checkbox(f"Approve: {label}", key=checkbox_key)
+        approvals.append(approved)
+    if not all(approvals):
+        st.stop()
+    else:
+        st.warning("All health issues approved manually. Proceed with caution.")
 else:
     st.success("Data health checks passed. TLH enabled.")
 

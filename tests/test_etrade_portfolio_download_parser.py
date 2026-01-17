@@ -22,12 +22,14 @@ def test_parse_portfolio_download_extracts_holdings_and_lots():
     assert result.account_summary
     assert result.account_summary.account == "Sample Brokerage -0001"
 
-    assert len(result.holdings) == 2
+    assert len(result.holdings) == 3
     aaa = result.holdings[0]
     assert aaa.symbol == "AAA"
     assert aaa.qty == 100.0
     assert aaa.market_value == 1500.0
     assert round(aaa.price, 2) == 15.0
+    cash = next(h for h in result.holdings if h.symbol == "VMFXX")
+    assert cash.is_cash_equivalent
 
     assert len(result.lots) == 2
     lot_dates = sorted(lot.acquired_date.isoformat() for lot in result.lots)

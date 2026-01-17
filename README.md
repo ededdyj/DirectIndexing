@@ -46,6 +46,11 @@ The app opens in your browser. Use the sidebar to upload CSVs and adjust TLH thr
 - **Missing columns / health checks**: the parser and downstream checks flag missing required headers, absent acquired dates, non-numeric quantities/basis, or impossible dates. The existing holdings-vs-lots quantity reconciliation remains enforced before TLH.
 - **Template export**: the sidebar offers a sanitized sample export (header + example rows) so other E*TRADE users can confirm the structure before uploading real data.
 - **Fallback uploads**: advanced users may still upload separate Holdings + Tax Lots CSVs; these override the combined file when provided.
+- **Cash equivalents**: common money-market tickers (e.g., `VMFXX`, `SPRXX`) are auto-tagged as cash equivalents. They remain visible in the holdings table but are ignored for lot/holding mismatch checks and TLH targeting.
+
+## Health check overrides & cash equivalents
+- The TLH workflow still runs the existing data health checks (lot basis coverage and holdings-vs-lots reconciliation). When issues are detected, each item must be explicitly approved via sidebar checkboxes before TLH results are shown—making it clear that the user is proceeding with known data caveats.
+- Money-market holdings are flagged as cash equivalents, excluded from lot-matching requirements, and treated as cash in downstream analytics. This prevents cash sweep funds (VMFXX, SPAXX, etc.) from blocking TLH analysis.
 
 ## CSV expectations
 All headers are normalized (lowercase, underscores), and common synonyms are mapped automatically. The tables below describe the fallback single-table uploads; prefer the combined E*TRADE Portfolio Download format when possible.
@@ -86,4 +91,4 @@ pytest
 Use these as templates for formatting, not as real data.
 
 ## Changelog
-- **2026-01-17** Added native support for E*TRADE Portfolio Download (PositionsSimple) exports, including combined holdings/lots parsing, template download, and warnings for problematic rows.
+- **2026-01-17** Added native support for E*TRADE Portfolio Download (PositionsSimple) exports with combined holdings/lots parsing, template download, manual health-check overrides, and money-market detection for cash equivalents.

@@ -18,6 +18,7 @@ class Holding(BaseModel):
     price: Optional[float] = Field(default=None, gt=0)
     market_value: Optional[float] = Field(default=None, ge=0)
     cost_basis_total: Optional[float] = Field(default=None, ge=0)
+    is_cash_equivalent: bool = Field(default=False)
 
     @field_validator("symbol")
     @classmethod
