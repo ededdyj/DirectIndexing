@@ -32,8 +32,23 @@ streamlit run app.py
 ```
 The app opens in your browser. Use the sidebar to upload CSVs and adjust TLH thresholds. Download the generated order checklist once satisfied.
 
+## E*TRADE Portfolio Download (PositionsSimple) Upload Support
+- Upload the raw E*TRADE `PortfolioDownload-*.csv` export directly (Account Summary + View Summary - PositionsSimple in one file). The parser scans for the table header `Symbol,Qty #,Value $,Total Cost`, normalizes position rows, and associates any indented lot rows underneath each symbol.
+- **Account Summary** rows are optional but, when present, the app surfaces metrics for account value, gain %, and cash purchasing power.
+- **Required columns** in the PositionsSimple table: `Symbol`, `Qty #`, `Value $`, `Total Cost`. Extra columns are ignored. `Symbol` rows create `Holding` records (qty, market value, optional inferred price and total cost basis).
+- **Lot rows** are identified by a blank/whitespace symbol column followed by an acquired date (`MM/DD/YYYY` or similar) or `--`. Parsed lots require: symbol inherited from the parent position, acquired date, quantity, and total cost basis. The `Value $` column is optional but, when populated, yields optional `current_value` and `current_price` fields.
+- **Normalization + derivations**:
+  - `symbol`: uppercase equity tickers only (`[A-Z]{1,5}` with optional `.XX`). Non-equity identifiers (CUSIPs, notes, etc.) are skipped and reported as warnings.
+  - `acquired_date`: parsed using several common formats; `--` rows are excluded with a warning.
+  - `lot_qty`: numeric parser handles commas, `$`, and parentheses. `qty <= 0` rows become warnings.
+  - `cost_basis_total`: taken from `Total Cost` when present; otherwise, the parser attempts to use lot value as a fallback. If both are missing the lot is rejected.
+  - `current_price` / `current_value`: derived from `Value $` when present; otherwise left `None`.
+- **Missing columns / health checks**: the parser and downstream checks flag missing required headers, absent acquired dates, non-numeric quantities/basis, or impossible dates. The existing holdings-vs-lots quantity reconciliation remains enforced before TLH.
+- **Template export**: the sidebar offers a sanitized sample export (header + example rows) so other E*TRADE users can confirm the structure before uploading real data.
+- **Fallback uploads**: advanced users may still upload separate Holdings + Tax Lots CSVs; these override the combined file when provided.
+
 ## CSV expectations
-All headers are normalized (lowercase, underscores), and common synonyms are mapped automatically. At minimum:
+All headers are normalized (lowercase, underscores), and common synonyms are mapped automatically. The tables below describe the fallback single-table uploads; prefer the combined E*TRADE Portfolio Download format when possible.
 
 ### Holdings CSV
 | Required | Optional |
@@ -69,3 +84,6 @@ pytest
 - `sample_data/trades_example.csv`
 
 Use these as templates for formatting, not as real data.
+
+## Changelog
+- **2026-01-17** Added native support for E*TRADE Portfolio Download (PositionsSimple) exports, including combined holdings/lots parsing, template download, and warnings for problematic rows.

@@ -2,6 +2,11 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
+from src.models import PortfolioDownloadParseResult
+from src.parsing.etrade_portfolio_download_parser import (
+    build_etrade_template_csv,
+    parse_etrade_portfolio_download,
+)
 from src.parsing.holdings_parser import parse_holdings_csv
 from src.parsing.lots_parser import parse_lots_csv
 from src.parsing.trades_parser import parse_trades_csv
@@ -21,10 +26,26 @@ st.caption(
     "Educational decision-support only. Not investment or tax advice."
 )
 
+template_csv = build_etrade_template_csv()
+
 with st.sidebar:
-    st.header("Upload CSVs")
-    holdings_file = st.file_uploader("Holdings CSV", type="csv")
-    lots_file = st.file_uploader("Tax Lots CSV", type="csv")
+    st.header("Upload data")
+    etrade_file = st.file_uploader(
+        "E*TRADE Portfolio Download CSV", type="csv"
+    )
+    st.download_button(
+        label="Download template",
+        data=template_csv,
+        file_name="etrade_portfolio_template.csv",
+        mime="text/csv",
+    )
+    st.caption(
+        "Default upload combines holdings + tax lots from the E*TRADE Portfolio Download."
+    )
+    st.divider()
+    st.caption("Optional overrides")
+    holdings_file = st.file_uploader("Holdings CSV override", type="csv")
+    lots_file = st.file_uploader("Tax Lots CSV override", type="csv")
     trades_file = st.file_uploader("Trades CSV (optional)", type="csv")
     sector_file = st.file_uploader("Sector map (optional)", type="csv")
     st.divider()
@@ -42,16 +63,33 @@ with st.sidebar:
         "Account-only wash sale guard. Trades in other accounts not visible."
     )
 
-if not holdings_file or not lots_file:
-    st.info("Upload holdings and tax lots CSVs to begin.")
-    st.stop()
+holdings = []
+lots = []
+portfolio_result: PortfolioDownloadParseResult | None = None
+
+if etrade_file:
+    try:
+        portfolio_result = parse_etrade_portfolio_download(etrade_file)
+        holdings = portfolio_result.holdings
+        lots = portfolio_result.lots
+    except Exception as exc:  # pragma: no cover - UI feedback
+        st.error(f"Unable to parse E*TRADE upload: {exc}")
+        st.stop()
 
 try:
-    holdings = parse_holdings_csv(holdings_file)
-    lots = parse_lots_csv(lots_file)
+    if holdings_file:
+        holdings = parse_holdings_csv(holdings_file)
+    if lots_file:
+        lots = parse_lots_csv(lots_file)
     trades = parse_trades_csv(trades_file) if trades_file else []
 except Exception as exc:  # pragma: no cover - UI feedback
     st.error(f"Unable to parse uploads: {exc}")
+    st.stop()
+
+if not holdings or not lots:
+    st.info(
+        "Upload the E*TRADE Portfolio Download CSV or provide both holdings and tax lots."
+    )
     st.stop()
 
 sector_map = {}
@@ -60,6 +98,34 @@ if sector_file:
         sector_map = load_sector_map(sector_file)
     except Exception as exc:  # pragma: no cover - UI feedback
         st.warning(f"Sector map load failed: {exc}")
+
+if portfolio_result:
+    st.subheader("E*TRADE upload summary")
+    st.success(portfolio_result.detected_format)
+    st.caption(
+        "Positions header detected: " + ", ".join(portfolio_result.positions_header)
+    )
+    if portfolio_result.account_summary:
+        summary = portfolio_result.account_summary
+        cols = st.columns(3)
+        cols[0].metric(
+            "Net account value",
+            format_currency(summary.net_account_value),
+        )
+        gain_pct_display = (
+            f"{summary.total_gain_pct:.2f}%"
+            if summary.total_gain_pct is not None
+            else "--"
+        )
+        cols[1].metric("Total gain %", gain_pct_display)
+        cols[2].metric(
+            "Cash purchasing power",
+            format_currency(summary.cash_purchasing_power),
+        )
+    if portfolio_result.warnings:
+        st.warning("Upload warnings detected:")
+        for warn in portfolio_result.warnings:
+            st.write("-", warn)
 
 st.subheader("Portfolio snapshots")
 col1, col2 = st.columns(2)

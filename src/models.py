@@ -17,6 +17,7 @@ class Holding(BaseModel):
     qty: float = Field(..., gt=0)
     price: Optional[float] = Field(default=None, gt=0)
     market_value: Optional[float] = Field(default=None, ge=0)
+    cost_basis_total: Optional[float] = Field(default=None, ge=0)
 
     @field_validator("symbol")
     @classmethod
@@ -31,6 +32,8 @@ class Lot(BaseModel):
     qty: float = Field(..., gt=0)
     basis_total: float = Field(..., ge=0)
     covered: Optional[bool] = None
+    current_value: Optional[float] = Field(default=None, ge=0)
+    current_price: Optional[float] = Field(default=None, ge=0)
 
     term: Term = Field(default=Term.SHORT)
 
@@ -92,3 +95,24 @@ class Trade(BaseModel):
     side: str
     trade_date: date
     qty: float
+
+
+class AccountSummary(BaseModel):
+    account: str
+    net_account_value: Optional[float] = None
+    total_gain_amount: Optional[float] = None
+    total_gain_pct: Optional[float] = None
+    days_gain_amount: Optional[float] = None
+    days_gain_pct: Optional[float] = None
+    available_for_withdrawal: Optional[float] = None
+    cash_purchasing_power: Optional[float] = None
+
+
+class PortfolioDownloadParseResult(BaseModel):
+    holdings: List[Holding]
+    lots: List[Lot]
+    warnings: List[str] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+    detected_format: str = "E*TRADE Portfolio Download (PositionsSimple)"
+    positions_header: List[str] = Field(default_factory=list)
+    account_summary: Optional[AccountSummary] = None

@@ -1,0 +1,15 @@
+Account Summary
+Account,Net Account Value,Total Gain $,Total Gain %,Day's Gain Unrealized $,Day's Gain Unrealized %,Available For Withdrawal,Cash Purchasing Power
+"Sample Brokerage -0001",100000.00,5000.00,5.0,120.00,0.12,90000.00,45000.00
+
+View Summary - PositionsSimple
+Filters applied:
+Symbol,Security type(s),Sort by,Sort order,
+,All,Symbol,Asc,
+
+Symbol,Qty #,Value $,Total Cost
+AAA,100.0000,1500.0000,1200.0000
+     01/05/2022,40.0000,600.0000,480.0000
+     03/15/2023,60.0000,900.0000,720.0000
+BBB,50.0000,700.0000,650.0000
+     --,50.0000,700.0000,650.0000
