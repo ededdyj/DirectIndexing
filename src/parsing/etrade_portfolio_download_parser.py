@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 from collections import defaultdict
 from pathlib import Path
-import re
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
 from src.models import (
@@ -14,14 +13,17 @@ from src.models import (
 )
 from src.utils.dates import parse_date
 from src.utils.money import safe_float
-from src.utils.securities import is_money_market_symbol
+from src.utils.securities import (
+    is_equity_symbol,
+    is_money_market_symbol,
+    looks_like_symbol,
+)
 
 from .common import ParsingError
 
 
 ACCOUNT_SUMMARY_MARKER = "account summary"
 POSITIONS_HEADER = "symbol,qty #,value $,total cost"
-EQUITY_SYMBOL_PATTERN = re.compile(r"^[A-Z]{1,5}(?:\.[A-Z]{1,2})?$")
 
 
 def parse_etrade_portfolio_download(source) -> PortfolioDownloadParseResult:
@@ -138,9 +140,9 @@ def _parse_positions(lines: Sequence[str]) -> Tuple[List[Holding], List[Lot], Li
             break
 
         first_cell = row[0].strip()
-        if _looks_like_symbol(first_cell):
+        if looks_like_symbol(first_cell):
             symbol = first_cell.upper()
-            if not _is_equity_symbol(symbol):
+            if not is_equity_symbol(symbol):
                 warnings.append(f"Skipped non-equity position '{symbol}'")
                 current_symbol = None
                 continue
@@ -246,17 +248,6 @@ def _looks_like_date(value: str) -> bool:
     has_sep = any(sep in text for sep in ("/", "-"))
     digits = sum(ch.isdigit() for ch in text)
     return has_sep and digits >= 6
-
-
-def _looks_like_symbol(value: str) -> bool:
-    if not value:
-        return False
-    text = value.strip().upper()
-    return bool(text) and not _looks_like_date(text)
-
-
-def _is_equity_symbol(value: str) -> bool:
-    return bool(EQUITY_SYMBOL_PATTERN.fullmatch(value.strip().upper()))
 
 
 def _split_csv_line(line: str) -> List[str]:

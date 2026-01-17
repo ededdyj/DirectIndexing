@@ -1,0 +1,17 @@
+Account Summary
+Account,Start Date,End  Date,Symbol,Security Type,Covered,Term
+"Sample Brokerage -0001",01/01/2025,12/31/2025,AAA,Equity,Covered,Long
+
+TAXABLE G&L SUMMARY
+Total Gain Realized,Short-Term Gain Realized,Long-Term Gain Realized,Deferred Loss,Total Commissions & Fees
+500.00,200.00,300.00,25.00,0.00
+TAXABLE G&L DETAILS
+Symbol,Quantity,Date,Cost/Share $,Total Cost $,Date,Price/Share $,Proceeds $,Gain $,Deferred Loss $,Term,Lot Selection
+AAA,1,--,--,1000.00,--,--,800.00,-200.00,.00,Long,--
+     Sell,1,01/05/2024,1000.00,1000.00,02/10/2025,800.00,800.00,-200.00,.00,Long,FIFO,
+BBB,2,--,--,2200.00,--,--,2100.00,-100.00,.00,Short,--
+     Sell,2,07/02/2024,1100.00,2200.00,01/15/2025,950.00,1900.00,-300.00,10.00,Short,FIFO,
+CCC,3,--,--,1500.00,--,--,1650.00,150.00,15.00,Long,--
+     Sell,3,03/10/2023,500.00,1500.00,01/20/2025,550.00,1650.00,150.00,15.00,Long,FIFO,
+Total,,,,,0,,,600.00,25.00,
+Generated at Jan 01 2026 09:00 AM ET

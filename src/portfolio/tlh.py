@@ -3,8 +3,20 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Iterable, List, Optional
 
-from src.models import Holding, Lot, TLHCandidate, Term, Trade
+from src.models import (
+    Holding,
+    Lot,
+    RealizedSummary,
+    TLHCandidate,
+    Term,
+    Trade,
+)
 from src.portfolio.analytics import price_lookup
+from src.portfolio.tax_context import (
+    GOAL_OFFSET_GAINS,
+    LOSS_TARGET_TOLERANCE,
+    determine_priority_term,
+)
 
 DEFAULT_LOSS_THRESHOLD = 500.0
 DEFAULT_LOSS_PCT = 0.05
@@ -20,10 +32,14 @@ def identify_candidates(
     max_candidates: int = 10,
     trades: Optional[Iterable[Trade]] = None,
     today: Optional[date] = None,
+    realized_summary: Optional[RealizedSummary] = None,
+    tlh_goal: str = GOAL_OFFSET_GAINS,
+    loss_target: float = 0.0,
 ) -> List[TLHCandidate]:
     today = today or date.today()
     price_map = price_lookup(holdings)
     trade_list = list(trades or [])
+    priority_term = determine_priority_term(realized_summary)
 
     candidates: List[TLHCandidate] = []
     for lot in lots:
@@ -61,13 +77,28 @@ def identify_candidates(
             )
         )
 
-    candidates.sort(
-        key=lambda c: (
-            0 if c.term == Term.SHORT else 1,
-            c.unrealized_pl,
-        )
-    )
-    return candidates[:max_candidates]
+    def _sort_key(candidate: TLHCandidate):
+        primary = 0
+        if priority_term:
+            primary = 0 if candidate.term == priority_term else 1
+        else:
+            primary = 0 if candidate.term == Term.SHORT else 1
+        secondary = 0 if candidate.term == Term.SHORT else 1
+        return (primary, secondary, candidate.unrealized_pl)
+
+    candidates.sort(key=_sort_key)
+
+    filtered: List[TLHCandidate] = []
+    cumulative_loss = 0.0
+    for candidate in candidates:
+        filtered.append(candidate)
+        if tlh_goal == GOAL_OFFSET_GAINS and loss_target > 0:
+            cumulative_loss += -candidate.unrealized_pl
+            if cumulative_loss >= loss_target * LOSS_TARGET_TOLERANCE:
+                break
+        if len(filtered) >= max_candidates:
+            break
+    return filtered
 
 
 def _has_recent_buy(trades: Iterable[Trade], symbol: str, today: date) -> bool:

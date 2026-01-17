@@ -3,7 +3,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from src.models import PortfolioDownloadParseResult
+from src.models import PortfolioDownloadParseResult, RealizedSummary
+from src.parsing.etrade_gains_losses_parser import parse_etrade_gains_losses_csv
 from src.parsing.etrade_portfolio_download_parser import (
     build_etrade_template_csv,
     parse_etrade_portfolio_download,
@@ -19,6 +20,12 @@ from src.portfolio.replacements import (
     load_sector_map,
 )
 from src.portfolio.proposals import build_proposal, export_order_checklist
+from src.portfolio.tax_context import (
+    GOAL_OFFSET_GAINS,
+    GOAL_OPPORTUNISTIC,
+    compute_loss_target,
+    summarize_realized,
+)
 from src.utils.money import format_currency, format_pct
 
 st.set_page_config(page_title="Direct Indexing TLH MVP", layout="wide")
@@ -28,6 +35,11 @@ st.caption(
 )
 
 template_csv = build_etrade_template_csv()
+goal_labels = {
+    GOAL_OFFSET_GAINS: "Offset realized gains (recommended if you have gains)",
+    GOAL_OPPORTUNISTIC: "Harvest opportunistically (build carryforward)",
+}
+goal_options = list(goal_labels.keys())
 
 with st.sidebar:
     st.header("Upload data")
@@ -43,6 +55,10 @@ with st.sidebar:
     st.caption(
         "Default upload combines holdings + tax lots from the E*TRADE Portfolio Download."
     )
+    gains_file = st.file_uploader(
+        "E*TRADE Gains & Losses CSV (optional)", type="csv"
+    )
+    st.caption("Add realized gains to tailor TLH targets.")
     st.divider()
     st.caption("Optional overrides")
     holdings_file = st.file_uploader("Holdings CSV override", type="csv")
@@ -58,6 +74,14 @@ with st.sidebar:
         "Loss % threshold", min_value=1, max_value=20, value=5
     )
     max_candidates = st.slider("Max candidates", min_value=1, max_value=20, value=10)
+    default_goal = GOAL_OFFSET_GAINS if gains_file else GOAL_OPPORTUNISTIC
+    default_index = goal_options.index(default_goal)
+    tlh_goal = st.selectbox(
+        "Goal for TLH this year",
+        options=goal_options,
+        format_func=lambda key: goal_labels[key],
+        index=default_index,
+    )
     st.write("Benchmark selection stored for context only.")
     st.divider()
     st.warning(
@@ -67,6 +91,8 @@ with st.sidebar:
 holdings = []
 lots = []
 portfolio_result: PortfolioDownloadParseResult | None = None
+realized_summary: RealizedSummary | None = None
+missing_gains_report = False
 
 if etrade_file:
     try:
@@ -100,6 +126,22 @@ if sector_file:
     except Exception as exc:  # pragma: no cover - UI feedback
         st.warning(f"Sector map load failed: {exc}")
 
+gains_result = None
+if gains_file:
+    try:
+        gains_result = parse_etrade_gains_losses_csv(gains_file)
+        realized_summary = summarize_realized(
+            gains_result.rows, warnings=gains_result.warnings
+        )
+    except Exception as exc:  # pragma: no cover - UI feedback
+        st.warning(f"Gains & Losses parsing failed: {exc}")
+
+if realized_summary is None:
+    missing_gains_report = True
+    realized_summary = RealizedSummary()
+else:
+    missing_gains_report = False
+
 if portfolio_result:
     st.subheader("E*TRADE upload summary")
     st.success(portfolio_result.detected_format)
@@ -127,6 +169,36 @@ if portfolio_result:
         st.warning("Upload warnings detected:")
         for warn in portfolio_result.warnings:
             st.write("-", warn)
+
+st.subheader("Tax context")
+if missing_gains_report:
+    st.warning(
+        "Realized gains/losses file not uploaded — TLH recommendations assume $0 realized gains YTD."
+    )
+tax_cols = st.columns(3)
+tax_cols[0].metric(
+    "YTD ST realized",
+    format_currency(realized_summary.ytd_realized_st),
+)
+tax_cols[1].metric(
+    "YTD LT realized",
+    format_currency(realized_summary.ytd_realized_lt),
+)
+tax_cols[2].metric(
+    "Wash-sale disallowed",
+    format_currency(realized_summary.ytd_wash_sale_disallowed_total),
+)
+if realized_summary.warnings:
+    for warn in realized_summary.warnings:
+        st.info(warn)
+
+loss_target_value = compute_loss_target(realized_summary, tlh_goal)
+if tlh_goal == GOAL_OFFSET_GAINS:
+    st.caption(
+        f"Loss budget needed to offset gains: {format_currency(loss_target_value)}"
+    )
+else:
+    st.caption("Harvesting opportunistically; no explicit loss target.")
 
 st.subheader("Portfolio snapshots")
 col1, col2 = st.columns(2)
@@ -164,6 +236,9 @@ candidates = identify_candidates(
     loss_pct_threshold=loss_pct_threshold / 100,
     max_candidates=max_candidates,
     trades=trades,
+    realized_summary=realized_summary,
+    tlh_goal=tlh_goal,
+    loss_target=loss_target_value,
 )
 
 if not candidates:

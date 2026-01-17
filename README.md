@@ -48,9 +48,19 @@ The app opens in your browser. Use the sidebar to upload CSVs and adjust TLH thr
 - **Fallback uploads**: advanced users may still upload separate Holdings + Tax Lots CSVs; these override the combined file when provided.
 - **Cash equivalents**: common money-market tickers (e.g., `VMFXX`, `SPRXX`) are auto-tagged as cash equivalents. They remain visible in the holdings table but are ignored for lot/holding mismatch checks and TLH targeting.
 
+## E*TRADE Gains & Losses CSV Support
+- Upload the `GainsAndLossesDowload.csv` export from the E*TRADE “Gains & Losses” tab. The parser skips the summary section, finds the `Symbol,Quantity,Date,...` table, and associates indented `Sell` rows with the preceding symbol header.
+- **Required columns** (case/spacing agnostic): `Symbol`, `Quantity`, two `Date` columns (acquired/sold), `Total Cost $`, `Proceeds $`, `Gain $`, `Term`. Optional inputs include `Cost/Share $`, `Price/Share $`, `Deferred Loss $` (used for wash-sale disallowances), and `Lot Selection`.
+- Numeric parsing tolerates commas, `$`, blank cells, and parentheses for negatives; `--` is treated as missing.
+- Summary rows such as `Total` or `Generated at` are ignored automatically.
+- Parsed rows become `RealizedGainLossRow` instances feeding a `RealizedSummary` (YTD realized ST/LT totals, net wash-sale disallowed amounts, row counts, and warnings).
+- The TLH workflow uses this tax context to rank candidates (prioritizing short-term losses when short-term gains exist), surface wash-sale adjustments, and compute a “loss budget” when the user selects **Offset realized gains**.
+- If the report is not uploaded the UI shows a banner and assumes $0 realized gains—recommendations will still run but are more conservative.
+
 ## Health check overrides & cash equivalents
 - The TLH workflow still runs the existing data health checks (lot basis coverage and holdings-vs-lots reconciliation). When issues are detected, each item must be explicitly approved via sidebar checkboxes before TLH results are shown—making it clear that the user is proceeding with known data caveats.
 - Money-market holdings are flagged as cash equivalents, excluded from lot-matching requirements, and treated as cash in downstream analytics. This prevents cash sweep funds (VMFXX, SPAXX, etc.) from blocking TLH analysis.
+- The sidebar now includes a “Goal for TLH this year” control. Choosing **Offset realized gains** activates a loss target equal to the net positive gains in the uploaded report; the app stops suggesting new lots once the projected losses meet that budget (within tolerance). Selecting **Harvest opportunistically** bypasses the target and simply surfaces the best remaining loss opportunities.
 
 ## CSV expectations
 All headers are normalized (lowercase, underscores), and common synonyms are mapped automatically. The tables below describe the fallback single-table uploads; prefer the combined E*TRADE Portfolio Download format when possible.
@@ -64,6 +74,11 @@ All headers are normalized (lowercase, underscores), and common synonyms are map
 | Required | Optional |
 | --- | --- |
 | `symbol`, `acquired_date`, `quantity`, (`cost_basis_total` **or** `cost_basis_per_share`) | `lot_id`, `covered` |
+
+### Gains & Losses CSV (optional but recommended)
+| Required | Optional |
+| --- | --- |
+| `symbol`, `quantity`, `date_acquired`, `date_sold`, `total_cost`, `proceeds`, `gain`, `term` | `cost_per_share`, `price_per_share`, `deferred_loss`, `lot_selection` |
 
 ### Trades CSV (optional)
 | Required |
@@ -91,4 +106,4 @@ pytest
 Use these as templates for formatting, not as real data.
 
 ## Changelog
-- **2026-01-17** Added native support for E*TRADE Portfolio Download (PositionsSimple) exports with combined holdings/lots parsing, template download, manual health-check overrides, and money-market detection for cash equivalents.
+- **2026-01-17** Added native support for E*TRADE Portfolio Download (PositionsSimple) exports, Gains & Losses uploads, tax-context driven TLH goals, manual health-check overrides, and money-market detection for cash equivalents.

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class Term(str, Enum):
     SHORT = "ST"
     LONG = "LT"
+    UNKNOWN = "UNKNOWN"
 
 
 class Holding(BaseModel):
@@ -117,3 +118,38 @@ class PortfolioDownloadParseResult(BaseModel):
     detected_format: str = "E*TRADE Portfolio Download (PositionsSimple)"
     positions_header: List[str] = Field(default_factory=list)
     account_summary: Optional[AccountSummary] = None
+
+
+class RealizedGainLossRow(BaseModel):
+    symbol: str
+    quantity: float = Field(..., gt=0)
+    date_acquired: Optional[date] = None
+    date_sold: date
+    proceeds: Optional[float] = None
+    cost_basis: Optional[float] = None
+    realized_gain_loss: float
+    term: Term = Term.UNKNOWN
+    wash_sale_disallowed: Optional[float] = None
+    source_row_id: Optional[str] = None
+
+    @field_validator("symbol")
+    @classmethod
+    def uppercase_symbol(cls, v: str) -> str:
+        return v.upper().strip()
+
+
+class RealizedSummary(BaseModel):
+    ytd_realized_st: float = 0.0
+    ytd_realized_lt: float = 0.0
+    ytd_realized_unknown: float = 0.0
+    ytd_realized_total: float = 0.0
+    ytd_wash_sale_disallowed_total: float = 0.0
+    rows_count: int = 0
+    warnings: List[str] = Field(default_factory=list)
+
+
+class GainsLossesParseResult(BaseModel):
+    rows: List[RealizedGainLossRow]
+    warnings: List[str] = Field(default_factory=list)
+    detected_format: str = "E*TRADE Gains & Losses"
+    header: List[str] = Field(default_factory=list)
