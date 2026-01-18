@@ -132,47 +132,62 @@ def _narrative_section(section: str, plan_type: str, context: Dict):
             data=text_data,
             file_name=f"{section}_narrative.txt",
             mime="text/plain",
+            key=f"{section}__narrative_text",
         )
         st.download_button(
             label="Download narrative (JSON)",
             data=json.dumps(narrative.model_dump(), indent=2),
             file_name=f"{section}_narrative.json",
             mime="application/json",
+            key=f"{section}__narrative_json",
         )
 
 with st.sidebar:
     st.header("Upload data")
     etrade_file = st.file_uploader(
-        "E*TRADE Portfolio Download CSV", type="csv"
+        "E*TRADE Portfolio Download CSV", type="csv", key="sidebar__etrade"
     )
     st.download_button(
         label="Download template",
         data=template_csv,
         file_name="etrade_portfolio_template.csv",
         mime="text/csv",
+        key="sidebar__download_template",
     )
     st.caption(
         "Default upload combines holdings + tax lots from the E*TRADE Portfolio Download."
     )
     gains_file = st.file_uploader(
-        "E*TRADE Gains & Losses CSV (optional)", type="csv"
+        "E*TRADE Gains & Losses CSV (optional)", type="csv", key="sidebar__gains"
     )
     st.caption("Add realized gains to tailor TLH targets.")
     st.divider()
     st.caption("Optional overrides")
-    holdings_file = st.file_uploader("Holdings CSV override", type="csv")
-    lots_file = st.file_uploader("Tax Lots CSV override", type="csv")
-    trades_file = st.file_uploader("Trades CSV (optional)", type="csv")
-    sector_file = st.file_uploader("Sector map (optional)", type="csv")
+    holdings_file = st.file_uploader(
+        "Holdings CSV override", type="csv", key="sidebar__holdings_override"
+    )
+    lots_file = st.file_uploader(
+        "Tax Lots CSV override", type="csv", key="sidebar__lots_override"
+    )
+    trades_file = st.file_uploader(
+        "Trades CSV (optional)", type="csv", key="sidebar__trades"
+    )
+    sector_file = st.file_uploader(
+        "Sector map (optional)", type="csv", key="sidebar__sector"
+    )
     st.divider()
-    benchmark = st.selectbox("Benchmark target", ["S&P 500", "Total US"])
+    benchmark = st.selectbox(
+        "Benchmark target", ["S&P 500", "Total US"], key="sidebar__benchmark"
+    )
     loss_threshold = st.number_input(
-        "Loss $ threshold", min_value=0.0, value=500.0, step=100.0
+        "Loss $ threshold", min_value=0.0, value=500.0, step=100.0, key="sidebar__loss_threshold"
     )
     loss_pct_threshold = st.slider(
-        "Loss % threshold", min_value=1, max_value=20, value=5
+        "Loss % threshold", min_value=1, max_value=20, value=5, key="sidebar__loss_pct"
     )
-    max_candidates = st.slider("Max candidates", min_value=1, max_value=20, value=10)
+    max_candidates = st.slider(
+        "Max candidates", min_value=1, max_value=20, value=10, key="sidebar__max_candidates"
+    )
     default_goal = GOAL_OFFSET_GAINS if gains_file else GOAL_OPPORTUNISTIC
     default_index = goal_options.index(default_goal)
     tlh_goal = st.selectbox(
@@ -180,6 +195,7 @@ with st.sidebar:
         options=goal_options,
         format_func=lambda key: goal_labels[key],
         index=default_index,
+        key="sidebar__tlh_goal",
     )
     st.write("Benchmark selection stored for context only.")
     st.divider()
@@ -413,6 +429,7 @@ with tlh_tab:
                 data=checklist_csv,
                 file_name=f"tlh_order_checklist_{datetime.utcnow().date()}.csv",
                 mime="text/csv",
+                key="tlh__download_checklist",
             )
 
             with st.expander("Plan narrative"):
@@ -431,25 +448,52 @@ with tlh_tab:
 with withdrawal_tab:
     st.subheader("Withdrawal Planner")
     withdrawal_amount = st.number_input(
-        "Withdrawal amount ($)", min_value=0.0, value=0.0, step=100.0
+        "Withdrawal amount ($)",
+        min_value=0.0,
+        value=0.0,
+        step=100.0,
+        key="withdrawal__amount",
     )
     buffer_pct = (
-        st.number_input("Cash buffer (%)", min_value=0.0, value=1.0, step=0.5) / 100.0
+        st.number_input(
+            "Cash buffer (%)",
+            min_value=0.0,
+            value=1.0,
+            step=0.5,
+            key="withdrawal__buffer_pct",
+        )
+        / 100.0
     )
     manual_cash = st.number_input(
-        "Additional cash available ($)", min_value=0.0, value=0.0, step=100.0
+        "Additional cash available ($)",
+        min_value=0.0,
+        value=0.0,
+        step=100.0,
+        key="withdrawal__manual_cash",
     )
 
     st.markdown("**Tax rate assumptions**")
     tax_cols = st.columns(3)
     st_rate = tax_cols[0].number_input(
-        "Short-term marginal rate (%)", min_value=0.0, max_value=70.0, value=32.0
+        "Short-term marginal rate (%)",
+        min_value=0.0,
+        max_value=70.0,
+        value=32.0,
+        key="withdrawal__tax_st",
     )
     lt_rate = tax_cols[1].number_input(
-        "Long-term capital gains rate (%)", min_value=0.0, max_value=50.0, value=15.0
+        "Long-term capital gains rate (%)",
+        min_value=0.0,
+        max_value=50.0,
+        value=15.0,
+        key="withdrawal__tax_lt",
     )
     state_rate = tax_cols[2].number_input(
-        "State tax rate (%)", min_value=0.0, max_value=20.0, value=5.0
+        "State tax rate (%)",
+        min_value=0.0,
+        max_value=20.0,
+        value=5.0,
+        key="withdrawal__tax_state",
     )
 
     goal_map = {
@@ -461,13 +505,17 @@ with withdrawal_tab:
         "Liquidation goal",
         options=list(goal_map.keys()),
         index=0,
+        key="withdrawal__goal",
     )
     exclude_symbols = st.multiselect(
         "Exclude symbols from selling",
         options=sorted({h.symbol for h in holdings}),
+        key="withdrawal__exclude_symbols",
     )
     exclude_missing_dates = st.checkbox(
-        "Exclude lots with missing acquired date (--)", value=True
+        "Exclude lots with missing acquired date (--)",
+        value=True,
+        key="withdrawal__exclude_missing_dates",
     )
 
     if withdrawal_amount <= 0:
@@ -568,6 +616,7 @@ with withdrawal_tab:
                 data=withdrawal_csv,
                 file_name=f"withdrawal_orders_{datetime.utcnow().date()}.csv",
                 mime="text/csv",
+                key="withdrawal__download_checklist",
             )
 
             with st.expander("Plan narrative"):
@@ -583,7 +632,7 @@ with strategy_tab:
     st.subheader("Direct Indexing Strategy Builder")
 
     strategy_upload = st.file_uploader(
-        "Load strategy JSON", type="json", key="strategy_json_upload"
+        "Load strategy JSON", type="json", key="strategy__json_upload"
     )
     loaded_strategy: StrategySpec | None = None
     if strategy_upload:
@@ -609,6 +658,7 @@ with strategy_tab:
         "Index universe",
         options=index_labels,
         index=index_labels.index(default_index_label),
+        key="strategy__index",
     )
     index_name = index_options[index_choice]
 
@@ -619,6 +669,7 @@ with strategy_tab:
         max_value=300,
         value=holdings_default,
         step=5,
+        key="strategy__holdings_count",
     )
 
     max_weight_default = (
@@ -632,6 +683,7 @@ with strategy_tab:
         max_value=10.0,
         value=max_weight_default,
         step=0.25,
+        key="strategy__max_weight",
     )
 
     screen_defaults = loaded_strategy.screens if loaded_strategy else {}
@@ -640,20 +692,24 @@ with strategy_tab:
         "oil_gas": screen_cols[0].checkbox(
             "Exclude Oil & Gas",
             value=screen_defaults.get("oil_gas", False),
+            key="strategy__screen_oil_gas",
         ),
         "tobacco": screen_cols[1].checkbox(
             "Exclude Tobacco",
             value=screen_defaults.get("tobacco", False),
+            key="strategy__screen_tobacco",
         ),
         "weapons": screen_cols[2].checkbox(
             "Exclude Weapons",
             value=screen_defaults.get("weapons", False),
+            key="strategy__screen_weapons",
         ),
     }
 
     include_cash = st.checkbox(
         "Include cash equivalents",
         value=loaded_strategy.include_cash_equivalents if loaded_strategy else False,
+        key="strategy__include_cash",
     )
 
     holding_symbols = sorted({h.symbol for h in holdings})
@@ -663,10 +719,12 @@ with strategy_tab:
         "Exclude holdings",
         options=exclusion_options,
         default=preset_exclusions,
+        key="strategy__exclude_holdings",
     )
     extra_exclusions_text = st.text_input(
         "Additional exclusions (comma-separated symbols)",
         value="",
+        key="strategy__extra_exclusions",
     )
     extra_exclusions = [
         sym.strip().upper()
@@ -734,6 +792,7 @@ with strategy_tab:
                 data=basket_csv,
                 file_name=f"target_basket_{strategy_spec.index_name}.csv",
                 mime="text/csv",
+                key="strategy__download_basket",
             )
             st.session_state["strategy_basket"] = basket_df.to_dict("records")
 
@@ -743,12 +802,13 @@ with strategy_tab:
         data=strategy_json,
         file_name="strategy_spec.json",
         mime="application/json",
+        key="strategy__download_json",
     )
 
     loaded_basket = st.file_uploader(
         "Load saved target basket CSV",
         type="csv",
-        key="uploaded_target_basket",
+        key="strategy__uploaded_target_basket",
     )
     if loaded_basket:
         try:
@@ -765,7 +825,7 @@ with transition_tab:
 
     strategy_spec_input = None
     strategy_json_upload = st.file_uploader(
-        "Upload strategy JSON", type="json", key="transition_strategy_json"
+        "Upload strategy JSON", type="json", key="transition__strategy_json"
     )
     if strategy_json_upload:
         try:
@@ -779,7 +839,7 @@ with transition_tab:
         strategy_spec_input = StrategySpec(**session_spec_data)
 
     basket_upload = st.file_uploader(
-        "Upload target basket CSV", type="csv", key="transition_basket_upload"
+        "Upload target basket CSV", type="csv", key="transition__basket_upload"
     )
     basket_df = None
     if basket_upload is not None:
@@ -797,17 +857,40 @@ with transition_tab:
         )
     else:
         allocation_amount = st.number_input(
-            "Allocation amount ($)", min_value=0.0, value=0.0, step=100.0
+            "Allocation amount ($)",
+            min_value=0.0,
+            value=0.0,
+            step=100.0,
+            key="transition__allocation_amount",
         )
         buffer_pct = (
-            st.number_input("Buffer %", min_value=0.0, value=1.0, step=0.5) / 100.0
+            st.number_input(
+                "Buffer %",
+                min_value=0.0,
+                value=1.0,
+                step=0.5,
+                key="transition__buffer_pct",
+            )
+            / 100.0
         )
         buffer_override = st.number_input(
-            "Buffer override ($)", min_value=0.0, value=0.0, step=100.0
+            "Buffer override ($)",
+            min_value=0.0,
+            value=0.0,
+            step=100.0,
+            key="transition__buffer_override",
         )
-        use_cash_first = st.checkbox("Use cash equivalents first", value=True)
+        use_cash_first = st.checkbox(
+            "Use cash equivalents first",
+            value=True,
+            key="transition__use_cash_first",
+        )
         manual_cash = st.number_input(
-            "Additional cash available ($)", min_value=0.0, value=0.0, step=100.0
+            "Additional cash available ($)",
+            min_value=0.0,
+            value=0.0,
+            step=100.0,
+            key="transition__manual_cash",
         )
 
         holding_symbols = sorted({h.symbol for h in holdings})
@@ -817,6 +900,7 @@ with transition_tab:
             "Exclude holdings from selling",
             options=holding_symbols,
             default=default_exclusions,
+            key="transition__exclude_holdings",
         )
 
         goal_labels_transition = {
@@ -827,6 +911,7 @@ with transition_tab:
         goal_choice = st.selectbox(
             "Liquidation goal",
             options=list(goal_labels_transition.keys()),
+            key="transition__goal",
         )
 
         tax_cols = st.columns(3)
@@ -835,18 +920,21 @@ with transition_tab:
             min_value=0.0,
             max_value=70.0,
             value=32.0,
+            key="transition__tax_st",
         )
         lt_rate = tax_cols[1].number_input(
             "Long-term capital gains rate (%)",
             min_value=0.0,
             max_value=50.0,
             value=15.0,
+            key="transition__tax_lt",
         )
         state_rate = tax_cols[2].number_input(
             "State tax rate (%)",
             min_value=0.0,
             max_value=20.0,
             value=5.0,
+            key="transition__tax_state",
         )
 
         if allocation_amount <= 0:
@@ -996,7 +1084,7 @@ with manage_tab:
     manage_json_upload = st.file_uploader(
         "Upload strategy JSON for management",
         type="json",
-        key="manage_strategy_json",
+        key="manage__strategy_json",
     )
     if manage_json_upload:
         try:
@@ -1012,7 +1100,7 @@ with manage_tab:
     manage_basket_upload = st.file_uploader(
         "Upload target basket CSV for management",
         type="csv",
-        key="manage_basket_upload",
+        key="manage__basket_upload",
     )
     if manage_basket_upload:
         try:
@@ -1080,6 +1168,7 @@ with manage_tab:
         action_choice = st.selectbox(
             "Management action",
             options=["TLH only", "Rebalance only", "Combined"],
+            key="manage__action",
         )
         mode_map = {
             "TLH only": "tlh",
@@ -1092,6 +1181,7 @@ with manage_tab:
             max_value=5.0,
             value=1.0,
             step=0.25,
+            key="manage__tolerance",
         )
         turnover_cap = st.slider(
             "Turnover cap (% of sleeve)",
@@ -1099,10 +1189,12 @@ with manage_tab:
             max_value=20.0,
             value=5.0,
             step=0.5,
+            key="manage__turnover",
         )
         tax_goal_choice = st.selectbox(
             "Tax sensitivity",
             options=["Minimize taxes", "Balanced", "Minimize drift"],
+            key="manage__tax_goal",
         )
         tax_goal_map = {
             "Minimize taxes": "min_tax",
@@ -1114,6 +1206,7 @@ with manage_tab:
             min_value=1,
             max_value=10,
             value=3,
+            key="manage__tlh_limit",
         )
 
         manage_settings = ManageActionSettings(
@@ -1202,6 +1295,7 @@ with manage_tab:
                 data=manage_sell_csv,
                 file_name="manage_sell_checklist.csv",
                 mime="text/csv",
+                key="manage__download_sells",
             )
         if not combined_buys.empty:
             st.download_button(
@@ -1209,12 +1303,14 @@ with manage_tab:
                 data=format_buy_targets_csv(plan.buy_targets),
                 file_name="manage_buy_targets.csv",
                 mime="text/csv",
+                key="manage__download_buys",
             )
         st.download_button(
             label="Download manage summary",
             data=format_manage_summary(plan),
             file_name="manage_summary.txt",
             mime="text/plain",
+            key="manage__download_summary",
         )
 
         with st.expander("Plan narrative"):
