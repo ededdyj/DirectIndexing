@@ -82,6 +82,10 @@ The app opens in your browser. Use the sidebar to upload CSVs and adjust TLH thr
 - Buy targets convert basket weights into dollar allocations (and estimated shares when prices are available from current holdings). Any symbols lacking prices are surfaced with warnings instead of silent assumptions.
 - Explainability is built-in: funding summaries show cash used vs. needed, lot-level sell tables include rationale + estimated tax, buy targets list target dollars/shares, and the “Why this plan?” panel cites the sequencing logic, realized-gain context, drift notes, and any data warnings. Export ready-to-share files: `sell_checklist_transition.csv`, `buy_targets_transition.csv`, and a human-readable `transition_summary.txt`.
 
+## Plan Narratives (Explainability)
+- Every tab that produces a plan (TLH, Withdrawal, Transition, Manage Strategy) now offers a “Generate narrative” button. Narratives are deterministic, rule-based summaries (no AI text generation) that spell out goals, trade selection logic (e.g., MinTax ordering, replacement selection, drift tolerances), estimated tax impacts, and explicit warnings about assumptions (missing Gains & Losses file, health-check overrides, wash-sale caveats).
+- Downloadable `narrative.txt` and `narrative.json` files help document the rationale for manual review or compliance records. Remember: narratives are educational decision-support only—not tax or investment advice.
+
 ## CSV expectations
 All headers are normalized (lowercase, underscores), and common synonyms are mapped automatically. The tables below describe the fallback single-table uploads; prefer the combined E*TRADE Portfolio Download format when possible.
 

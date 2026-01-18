@@ -306,3 +306,12 @@ class StrategyManagePlan(BaseModel):
     buy_targets: List[BuyTargetRow] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     notes: List[str] = Field(default_factory=list)
+
+
+class PlanNarrative(BaseModel):
+    title: str
+    bullets: List[str]
+    metrics: Dict[str, str] = Field(default_factory=dict)
+    warnings: List[str] = Field(default_factory=list)
+    next_steps: List[str] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)

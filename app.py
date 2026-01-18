@@ -1,7 +1,10 @@
 import hashlib
-import streamlit as st
-import pandas as pd
+import json
 from datetime import datetime
+from typing import Dict
+
+import pandas as pd
+import streamlit as st
 
 from src.models import (
     ManageActionSettings,
@@ -43,6 +46,7 @@ from src.portfolio.manage import (
     compute_sleeve_snapshot,
     format_manage_summary,
 )
+from src.portfolio.narratives import render_plan_narrative
 from src.portfolio.transition import (
     build_transition_plan,
     format_buy_targets_csv,
@@ -69,6 +73,72 @@ goal_labels = {
     GOAL_OPPORTUNISTIC: "Harvest opportunistically (build carryforward)",
 }
 goal_options = list(goal_labels.keys())
+
+
+def _narrative_session_key(section: str) -> str:
+    return f"narrative_{section}"
+
+
+def _format_narrative_text(narrative) -> str:
+    lines = [narrative.title, ""]
+    if narrative.metrics:
+        lines.append("Metrics:")
+        for key, value in narrative.metrics.items():
+            lines.append(f"- {key}: {value}")
+        lines.append("")
+    lines.append("Highlights:")
+    for bullet in narrative.bullets:
+        lines.append(f"- {bullet}")
+    if narrative.warnings:
+        lines.append("")
+        lines.append("Warnings:")
+        for warn in narrative.warnings:
+            lines.append(f"- {warn}")
+    if narrative.next_steps:
+        lines.append("")
+        lines.append("Next steps:")
+        for step in narrative.next_steps:
+            lines.append(f"- {step}")
+    lines.append("")
+    lines.append(f"Generated at: {narrative.generated_at.isoformat()} UTC")
+    return "\n".join(lines)
+
+
+def _narrative_section(section: str, plan_type: str, context: Dict):
+    key = _narrative_session_key(section)
+    if st.button("Generate narrative", key=f"{section}_generate"):
+        try:
+            narrative = render_plan_narrative(plan_type, context)
+            st.session_state[key] = narrative
+        except Exception as exc:  # pragma: no cover - UI feedback
+            st.error(f"Unable to generate narrative: {exc}")
+    narrative = st.session_state.get(key)
+    if narrative:
+        st.subheader(narrative.title)
+        if narrative.metrics:
+            metric_df = pd.DataFrame(
+                [[k, v] for k, v in narrative.metrics.items()], columns=["Metric", "Value"]
+            )
+            st.table(metric_df)
+        for bullet in narrative.bullets:
+            st.write("-", bullet)
+        if narrative.warnings:
+            st.warning("\n".join(narrative.warnings))
+        if narrative.next_steps:
+            st.info("Next steps:\n" + "\n".join(f"- {step}" for step in narrative.next_steps))
+        text_data = _format_narrative_text(narrative)
+        st.download_button(
+            label="Download narrative (text)",
+            data=text_data,
+            file_name=f"{section}_narrative.txt",
+            mime="text/plain",
+        )
+        st.download_button(
+            label="Download narrative (JSON)",
+            data=json.dumps(narrative.model_dump(), indent=2),
+            file_name=f"{section}_narrative.json",
+            mime="application/json",
+        )
 
 with st.sidebar:
     st.header("Upload data")
@@ -240,6 +310,8 @@ for category, messages in health.items():
     for message in messages:
         issue_entries.append((category, message))
 
+health_issues_present = bool(issue_entries)
+
 if issue_entries:
     st.error(
         "Health checks flagged issues. Approve each item to proceed (manual override)."
@@ -342,6 +414,19 @@ with tlh_tab:
                 file_name=f"tlh_order_checklist_{datetime.utcnow().date()}.csv",
                 mime="text/csv",
             )
+
+            with st.expander("Plan narrative"):
+                tlhn_context = {
+                    "proposal": proposal,
+                    "loss_threshold": loss_threshold,
+                    "loss_pct_threshold": loss_pct_threshold,
+                    "tlh_goal": tlh_goal,
+                    "loss_budget": loss_target_value,
+                    "missing_gains_report": missing_gains_report,
+                    "health_overrides": health_issues_present,
+                    "replacement_style": "Sector-aware replacement baskets",
+                }
+                _narrative_section("tlh", "tlh", tlhn_context)
 
 with withdrawal_tab:
     st.subheader("Withdrawal Planner")
@@ -484,6 +569,15 @@ with withdrawal_tab:
                 file_name=f"withdrawal_orders_{datetime.utcnow().date()}.csv",
                 mime="text/csv",
             )
+
+            with st.expander("Plan narrative"):
+                withdrawal_context = {
+                    "proposal": proposal,
+                    "goal": goal_map[goal_choice],
+                    "missing_gains_report": missing_gains_report,
+                    "health_overrides": health_issues_present,
+                }
+                _narrative_section("withdrawal", "withdrawal", withdrawal_context)
 
 with strategy_tab:
     st.subheader("Direct Indexing Strategy Builder")
@@ -881,6 +975,17 @@ with transition_tab:
                     mime="text/plain",
                 )
 
+                with st.expander("Plan narrative"):
+                    transition_context = {
+                        "plan": plan,
+                        "index_name": strategy_spec_input.index_name if strategy_spec_input else "strategy",
+                        "screens": [
+                            name for name, enabled in (strategy_spec_input.screens or {}).items() if enabled
+                        ] if strategy_spec_input else [],
+                        "missing_gains_report": missing_gains_report,
+                    }
+                    _narrative_section("transition", "transition", transition_context)
+
 with manage_tab:
     st.subheader("Manage Strategy")
     manage_strategy_spec = None
@@ -1111,3 +1216,10 @@ with manage_tab:
             file_name="manage_summary.txt",
             mime="text/plain",
         )
+
+        with st.expander("Plan narrative"):
+            manage_context = {
+                "plan": plan,
+                "settings": manage_settings,
+            }
+            _narrative_section("manage", "manage", manage_context)
