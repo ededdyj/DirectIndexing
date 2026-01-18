@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
+from typing_extensions import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -182,3 +183,31 @@ class WithdrawalProposal(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     notes: List[str] = Field(default_factory=list)
     drift_metrics: List[str] = Field(default_factory=list)
+
+
+class StrategySpec(BaseModel):
+    index_name: Literal["sp500", "total_us", "nasdaq100"]
+    holdings_count: int = Field(..., ge=1)
+    max_single_name_weight: float = Field(..., gt=0, le=1)
+    screens: Dict[str, bool] = Field(default_factory=dict)
+    excluded_symbols: List[str] = Field(default_factory=list)
+    include_cash_equivalents: bool = False
+
+    @field_validator("excluded_symbols", mode="before")
+    @classmethod
+    def normalize_symbols(cls, v):
+        if not v:
+            return []
+        return [str(sym).upper().strip() for sym in v if str(sym).strip()]
+
+
+class TargetBasketRow(BaseModel):
+    symbol: str
+    target_weight: float
+    sector: Optional[str] = None
+    source_index: str
+
+    @field_validator("symbol")
+    @classmethod
+    def uppercase_symbol(cls, v: str) -> str:
+        return v.upper().strip()

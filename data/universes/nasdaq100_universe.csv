@@ -1,0 +1,36 @@
+symbol,weight,sector
+AAPL,0.116279,Information Technology
+MSFT,0.110465,Information Technology
+AMZN,0.069767,Consumer Discretionary
+NVDA,0.081395,Information Technology
+META,0.052326,Communication Services
+GOOGL,0.046512,Communication Services
+GOOG,0.040698,Communication Services
+TSLA,0.037209,Consumer Discretionary
+AVGO,0.034884,Information Technology
+PEP,0.032558,Consumer Staples
+COST,0.02907,Consumer Staples
+ADBE,0.026744,Information Technology
+CSCO,0.023256,Information Technology
+NFLX,0.022093,Communication Services
+AMD,0.02093,Information Technology
+INTC,0.019767,Information Technology
+TXN,0.018605,Information Technology
+AMAT,0.017442,Information Technology
+QCOM,0.017442,Information Technology
+HON,0.016279,Industrials
+SBUX,0.016279,Consumer Discretionary
+PYPL,0.015116,Financials
+INTU,0.015116,Information Technology
+MU,0.012791,Information Technology
+BKNG,0.012791,Consumer Discretionary
+CHTR,0.011628,Communication Services
+LRCX,0.011628,Information Technology
+GILD,0.010465,Health Care
+VRTX,0.010465,Health Care
+CSX,0.009302,Industrials
+ADI,0.009302,Information Technology
+REGN,0.00814,Health Care
+PANW,0.00814,Information Technology
+MELI,0.00814,Consumer Discretionary
+MAR,0.006977,Consumer Discretionary

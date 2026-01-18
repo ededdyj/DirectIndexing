@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from src.models import PortfolioDownloadParseResult, RealizedSummary
+from src.models import PortfolioDownloadParseResult, RealizedSummary, StrategySpec
 from src.parsing.etrade_gains_losses_parser import parse_etrade_gains_losses_csv
 from src.parsing.etrade_portfolio_download_parser import (
     build_etrade_template_csv,
@@ -24,6 +24,11 @@ from src.portfolio.withdrawals import (
     TaxRates,
     build_withdrawal_proposal,
     format_withdrawal_order_csv,
+)
+from src.portfolio.strategy import (
+    build_target_basket,
+    export_basket_csv,
+    load_universe,
 )
 from src.portfolio.tax_context import (
     GOAL_OFFSET_GAINS,
@@ -234,7 +239,9 @@ if issue_entries:
 else:
     st.success("Data health checks passed. TLH enabled.")
 
-tlh_tab, withdrawal_tab = st.tabs(["TLH Engine", "Withdrawal Planner"])
+tlh_tab, withdrawal_tab, strategy_tab = st.tabs(
+    ["TLH Engine", "Withdrawal Planner", "Strategy Builder"]
+)
 
 with tlh_tab:
     st.subheader("TLH candidates")
@@ -458,3 +465,180 @@ with withdrawal_tab:
                 file_name=f"withdrawal_orders_{datetime.utcnow().date()}.csv",
                 mime="text/csv",
             )
+
+with strategy_tab:
+    st.subheader("Direct Indexing Strategy Builder")
+
+    strategy_upload = st.file_uploader(
+        "Load strategy JSON", type="json", key="strategy_json_upload"
+    )
+    loaded_strategy: StrategySpec | None = None
+    if strategy_upload:
+        try:
+            json_text = strategy_upload.read().decode("utf-8")
+            loaded_strategy = StrategySpec.model_validate_json(json_text)
+            st.success("Strategy JSON loaded")
+        except Exception as exc:
+            st.error(f"Unable to parse strategy JSON: {exc}")
+
+    index_options = {
+        "S&P 500": "sp500",
+        "Total US": "total_us",
+        "Nasdaq 100": "nasdaq100",
+    }
+    index_labels = list(index_options.keys())
+    default_index_name = loaded_strategy.index_name if loaded_strategy else "sp500"
+    default_index_label = next(
+        (label for label, name in index_options.items() if name == default_index_name),
+        "S&P 500",
+    )
+    index_choice = st.selectbox(
+        "Index universe",
+        options=index_labels,
+        index=index_labels.index(default_index_label),
+    )
+    index_name = index_options[index_choice]
+
+    holdings_default = loaded_strategy.holdings_count if loaded_strategy else 100
+    holdings_count = st.slider(
+        "Target holdings count",
+        min_value=25,
+        max_value=300,
+        value=holdings_default,
+        step=5,
+    )
+
+    max_weight_default = (
+        (loaded_strategy.max_single_name_weight * 100)
+        if loaded_strategy
+        else 5.0
+    )
+    max_weight_pct = st.slider(
+        "Max single-name weight (%)",
+        min_value=0.5,
+        max_value=10.0,
+        value=max_weight_default,
+        step=0.25,
+    )
+
+    screen_defaults = loaded_strategy.screens if loaded_strategy else {}
+    screen_cols = st.columns(3)
+    screen_values = {
+        "oil_gas": screen_cols[0].checkbox(
+            "Exclude Oil & Gas",
+            value=screen_defaults.get("oil_gas", False),
+        ),
+        "tobacco": screen_cols[1].checkbox(
+            "Exclude Tobacco",
+            value=screen_defaults.get("tobacco", False),
+        ),
+        "weapons": screen_cols[2].checkbox(
+            "Exclude Weapons",
+            value=screen_defaults.get("weapons", False),
+        ),
+    }
+
+    include_cash = st.checkbox(
+        "Include cash equivalents",
+        value=loaded_strategy.include_cash_equivalents if loaded_strategy else False,
+    )
+
+    holding_symbols = sorted({h.symbol for h in holdings})
+    preset_exclusions = loaded_strategy.excluded_symbols if loaded_strategy else []
+    exclusion_options = sorted(set(holding_symbols) | set(preset_exclusions))
+    selected_exclusions = st.multiselect(
+        "Exclude holdings",
+        options=exclusion_options,
+        default=preset_exclusions,
+    )
+    extra_exclusions_text = st.text_input(
+        "Additional exclusions (comma-separated symbols)",
+        value="",
+    )
+    extra_exclusions = [
+        sym.strip().upper()
+        for sym in extra_exclusions_text.split(",")
+        if sym.strip()
+    ]
+    all_exclusions = sorted({*selected_exclusions, *extra_exclusions})
+
+    strategy_spec = StrategySpec(
+        index_name=index_name,
+        holdings_count=holdings_count,
+        max_single_name_weight=max_weight_pct / 100.0,
+        screens=screen_values,
+        excluded_symbols=all_exclusions,
+        include_cash_equivalents=include_cash,
+    )
+
+    try:
+        universe_df = load_universe(strategy_spec.index_name)
+    except Exception as exc:
+        st.error(f"Unable to load universe: {exc}")
+        universe_df = None
+
+    if universe_df is not None:
+        basket_df, strategy_warnings = build_target_basket(
+            universe_df,
+            strategy_spec,
+            sector_map=sector_map or None,
+        )
+
+        if strategy_warnings:
+            st.warning("; ".join(strategy_warnings))
+
+        if basket_df.empty:
+            st.info("No holdings remain after applying screens and exclusions.")
+        else:
+            top10 = basket_df.sort_values("weight", ascending=False).head(10)[
+                "weight"
+            ].sum()
+            summary_cols = st.columns(3)
+            summary_cols[0].metric(
+                "Holdings in basket",
+                f"{len(basket_df)}",
+            )
+            summary_cols[1].metric(
+                "Top 10 weight",
+                f"{top10:.2%}",
+            )
+            summary_cols[2].metric(
+                "Max weight",
+                f"{basket_df['weight'].max():.2%}",
+            )
+
+            display_df = basket_df.copy()
+            display_df["weight_pct"] = display_df["weight"] * 100
+            st.dataframe(
+                display_df[["symbol", "weight", "weight_pct", "sector"]],
+                hide_index=True,
+            )
+
+            basket_csv = export_basket_csv(basket_df)
+            st.download_button(
+                label="Download target basket CSV",
+                data=basket_csv,
+                file_name=f"target_basket_{strategy_spec.index_name}.csv",
+                mime="text/csv",
+            )
+
+    strategy_json = strategy_spec.model_dump_json(indent=2)
+    st.download_button(
+        label="Download strategy JSON",
+        data=strategy_json,
+        file_name="strategy_spec.json",
+        mime="application/json",
+    )
+
+    loaded_basket = st.file_uploader(
+        "Load saved target basket CSV",
+        type="csv",
+        key="uploaded_target_basket",
+    )
+    if loaded_basket:
+        try:
+            loaded_df = pd.read_csv(loaded_basket)
+            st.write("Loaded target basket preview:")
+            st.dataframe(loaded_df.head(20))
+        except Exception as exc:
+            st.error(f"Unable to parse target basket CSV: {exc}")

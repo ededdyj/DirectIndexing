@@ -69,6 +69,13 @@ The app opens in your browser. Use the sidebar to upload CSVs and adjust TLH thr
 - **Portfolio drift guardrails:** sells are compared against each holding’s weight; optional liquidation goals let users minimize taxes, minimize benchmark drift, or take a balanced approach. Drift metrics are reported alongside the recommendations.
 - **Explainability and export:** every recommended lot shows proceeds, basis, gain/loss, estimated tax, and rationale (“loss lot to offset gains,” “long-term gain lot,” etc.). The “Why these sells?” panel summarizes the ordering logic and drift results, and users can export a sell-only order checklist CSV for manual execution.
 
+## Direct Indexing Strategy Builder
+- The Strategy Builder tab lets you design a benchmark-tracking basket using starter universes stored under `data/universes/` (S&P 500, Total US, Nasdaq 100). Each CSV contains a symbol column, normalized weights, and optional sector labels—no external APIs required.
+- Screens and exclusions are applied deterministically: toggle built-in lists for Oil & Gas, Tobacco, and Weapons (sample symbol files under `data/screens/`), specify tickers to exclude, and optionally paste comma-separated tickers. After filtering, weights are capped at the chosen single-name limit, renormalized, and trimmed to the requested holdings count.
+- Cash equivalents (VMFXX, SPRXX, etc.) are omitted by default so the target basket is fully invested; you can opt to include them when designing cash-plus strategies.
+- Outputs include a sortable table with target weights, sector tags (from the universe or your uploaded sector map), summary metrics (holdings count, top-10 concentration, max weight), and warnings whenever filters remove too much of the index. Download both the basket (`target_basket.csv`) and the underlying `strategy.json` for reuse; uploaders let you reload either artifact later.
+- Limitations: universes and screen lists are illustrative starters, not comprehensive index constituents. Update the CSVs as needed for production coverage.
+
 ## CSV expectations
 All headers are normalized (lowercase, underscores), and common synonyms are mapped automatically. The tables below describe the fallback single-table uploads; prefer the combined E*TRADE Portfolio Download format when possible.
 
