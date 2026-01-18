@@ -211,3 +211,64 @@ class TargetBasketRow(BaseModel):
     @classmethod
     def uppercase_symbol(cls, v: str) -> str:
         return v.upper().strip()
+
+
+class TaxRateInput(BaseModel):
+    short_term: float = 0.32
+    long_term: float = 0.15
+    state: float = 0.05
+
+
+class StrategyAllocationRequest(BaseModel):
+    allocation_amount: float
+    cash_buffer_amount: Optional[float] = None
+    cash_buffer_pct: Optional[float] = None
+    manual_cash_available: float = 0.0
+    use_cash_equivalents_first: bool = True
+    excluded_from_selling: List[str] = Field(default_factory=list)
+    liquidation_goal: Literal["min_tax", "balanced", "min_drift"] = "min_tax"
+    tax_rates: Optional[TaxRateInput] = None
+    exclude_missing_dates: bool = True
+
+    @field_validator("excluded_from_selling", mode="before")
+    @classmethod
+    def normalize_symbols(cls, v):
+        if not v:
+            return []
+        return [str(sym).upper().strip() for sym in v if str(sym).strip()]
+
+
+class BuyTargetRow(BaseModel):
+    symbol: str
+    target_weight: float
+    target_dollars: float
+    price: Optional[float] = None
+    est_shares: Optional[float] = None
+
+    @field_validator("symbol")
+    @classmethod
+    def uppercase_symbol(cls, v: str) -> str:
+        return v.upper().strip()
+
+
+class EstimatedTaxImpact(BaseModel):
+    st_realized: float = 0.0
+    lt_realized: float = 0.0
+    st_tax: float = 0.0
+    lt_tax: float = 0.0
+    total_tax: float = 0.0
+    notes: List[str] = Field(default_factory=list)
+
+
+class TransitionPlan(BaseModel):
+    allocation_amount: float
+    buffer_amount: float
+    cash_available: float
+    cash_used: float
+    cash_needed_from_sales: float
+    sells: List[SellLotRecommendation]
+    estimated_tax: EstimatedTaxImpact
+    buys: List[BuyTargetRow]
+    warnings: List[str] = Field(default_factory=list)
+    drift_metrics: List[str] = Field(default_factory=list)
+    rationale_summary: str = ""

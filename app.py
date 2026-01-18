@@ -3,7 +3,13 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from src.models import PortfolioDownloadParseResult, RealizedSummary, StrategySpec
+from src.models import (
+    PortfolioDownloadParseResult,
+    RealizedSummary,
+    StrategyAllocationRequest,
+    StrategySpec,
+    TaxRateInput,
+)
 from src.parsing.etrade_gains_losses_parser import parse_etrade_gains_losses_csv
 from src.parsing.etrade_portfolio_download_parser import (
     build_etrade_template_csv,
@@ -30,6 +36,12 @@ from src.portfolio.strategy import (
     export_basket_csv,
     load_universe,
 )
+from src.portfolio.transition import (
+    build_transition_plan,
+    format_buy_targets_csv,
+    format_transition_summary,
+)
+from src.portfolio.liquidation import format_sells_csv
 from src.portfolio.tax_context import (
     GOAL_OFFSET_GAINS,
     GOAL_OPPORTUNISTIC,
@@ -239,8 +251,8 @@ if issue_entries:
 else:
     st.success("Data health checks passed. TLH enabled.")
 
-tlh_tab, withdrawal_tab, strategy_tab = st.tabs(
-    ["TLH Engine", "Withdrawal Planner", "Strategy Builder"]
+tlh_tab, withdrawal_tab, strategy_tab, transition_tab = st.tabs(
+    ["TLH Engine", "Withdrawal Planner", "Strategy Builder", "Allocate & Transition"]
 )
 
 with tlh_tab:
@@ -570,6 +582,7 @@ with strategy_tab:
         excluded_symbols=all_exclusions,
         include_cash_equivalents=include_cash,
     )
+    st.session_state["strategy_spec"] = strategy_spec.model_dump()
 
     try:
         universe_df = load_universe(strategy_spec.index_name)
@@ -621,6 +634,7 @@ with strategy_tab:
                 file_name=f"target_basket_{strategy_spec.index_name}.csv",
                 mime="text/csv",
             )
+            st.session_state["strategy_basket"] = basket_df.to_dict("records")
 
     strategy_json = strategy_spec.model_dump_json(indent=2)
     st.download_button(
@@ -642,3 +656,220 @@ with strategy_tab:
             st.dataframe(loaded_df.head(20))
         except Exception as exc:
             st.error(f"Unable to parse target basket CSV: {exc}")
+
+with transition_tab:
+    st.subheader("Allocate & Transition")
+    session_spec_data = st.session_state.get("strategy_spec")
+    session_basket_records = st.session_state.get("strategy_basket")
+
+    strategy_spec_input = None
+    strategy_json_upload = st.file_uploader(
+        "Upload strategy JSON", type="json", key="transition_strategy_json"
+    )
+    if strategy_json_upload:
+        try:
+            strategy_spec_input = StrategySpec.model_validate_json(
+                strategy_json_upload.read().decode("utf-8")
+            )
+            st.success("Strategy JSON loaded for transition planning")
+        except Exception as exc:
+            st.error(f"Unable to parse strategy JSON: {exc}")
+    elif session_spec_data:
+        strategy_spec_input = StrategySpec(**session_spec_data)
+
+    basket_upload = st.file_uploader(
+        "Upload target basket CSV", type="csv", key="transition_basket_upload"
+    )
+    basket_df = None
+    if basket_upload is not None:
+        try:
+            basket_df = pd.read_csv(basket_upload)
+            st.success("Target basket CSV loaded")
+        except Exception as exc:
+            st.error(f"Unable to parse target basket CSV: {exc}")
+    elif session_basket_records:
+        basket_df = pd.DataFrame(session_basket_records)
+
+    if strategy_spec_input is None or basket_df is None or basket_df.empty:
+        st.info(
+            "Load a strategy (JSON) and target basket CSV from the Strategy Builder tab to create a transition plan."
+        )
+    else:
+        allocation_amount = st.number_input(
+            "Allocation amount ($)", min_value=0.0, value=0.0, step=100.0
+        )
+        buffer_pct = (
+            st.number_input("Buffer %", min_value=0.0, value=1.0, step=0.5) / 100.0
+        )
+        buffer_override = st.number_input(
+            "Buffer override ($)", min_value=0.0, value=0.0, step=100.0
+        )
+        use_cash_first = st.checkbox("Use cash equivalents first", value=True)
+        manual_cash = st.number_input(
+            "Additional cash available ($)", min_value=0.0, value=0.0, step=100.0
+        )
+
+        holding_symbols = sorted({h.symbol for h in holdings})
+        cash_symbols = [h.symbol for h in holdings if getattr(h, "is_cash_equivalent", False)]
+        default_exclusions = sorted(set(cash_symbols))
+        excluded = st.multiselect(
+            "Exclude holdings from selling",
+            options=holding_symbols,
+            default=default_exclusions,
+        )
+
+        goal_labels_transition = {
+            "Minimize taxes": "min_tax",
+            "Balanced": "balanced",
+            "Minimize drift": "min_drift",
+        }
+        goal_choice = st.selectbox(
+            "Liquidation goal",
+            options=list(goal_labels_transition.keys()),
+        )
+
+        tax_cols = st.columns(3)
+        st_rate = tax_cols[0].number_input(
+            "Short-term marginal rate (%)",
+            min_value=0.0,
+            max_value=70.0,
+            value=32.0,
+        )
+        lt_rate = tax_cols[1].number_input(
+            "Long-term capital gains rate (%)",
+            min_value=0.0,
+            max_value=50.0,
+            value=15.0,
+        )
+        state_rate = tax_cols[2].number_input(
+            "State tax rate (%)",
+            min_value=0.0,
+            max_value=20.0,
+            value=5.0,
+        )
+
+        if allocation_amount <= 0:
+            st.info("Enter an allocation amount to build a transition plan.")
+        else:
+            request = StrategyAllocationRequest(
+                allocation_amount=allocation_amount,
+                cash_buffer_amount=buffer_override if buffer_override > 0 else None,
+                cash_buffer_pct=None if buffer_override > 0 else buffer_pct,
+                manual_cash_available=manual_cash,
+                use_cash_equivalents_first=use_cash_first,
+                excluded_from_selling=excluded,
+                liquidation_goal=goal_labels_transition[goal_choice],
+                tax_rates=TaxRateInput(
+                    short_term=st_rate / 100.0,
+                    long_term=lt_rate / 100.0,
+                    state=state_rate / 100.0,
+                ),
+            )
+
+            try:
+                plan = build_transition_plan(
+                    holdings,
+                    lots,
+                    basket_df,
+                    strategy_spec_input,
+                    request,
+                    realized_summary,
+                )
+            except Exception as exc:
+                st.error(f"Unable to build transition plan: {exc}")
+            else:
+                summary_cols = st.columns(3)
+                summary_cols[0].metric(
+                    "Cash available",
+                    format_currency(plan.cash_available),
+                )
+                summary_cols[1].metric(
+                    "Cash needed from sells",
+                    format_currency(plan.cash_needed_from_sales),
+                )
+                summary_cols[2].metric(
+                    "Estimated total tax",
+                    format_currency(plan.estimated_tax.total_tax),
+                )
+                st.metric(
+                    "Estimated ST / LT realized",
+                    f"{format_currency(plan.estimated_tax.st_realized)} / {format_currency(plan.estimated_tax.lt_realized)}",
+                )
+
+                if plan.warnings:
+                    st.warning("Transition warnings:")
+                    for warn in plan.warnings:
+                        st.write("-", warn)
+
+                if plan.sells:
+                    sell_df = pd.DataFrame(
+                        [
+                            {
+                                "symbol": sell.symbol,
+                                "lot_id": sell.lot_id,
+                                "acquired_date": sell.acquired_date,
+                                "qty": sell.qty,
+                                "price": sell.price,
+                                "proceeds": sell.proceeds,
+                                "basis": sell.basis,
+                                "gain_loss": sell.gain_loss,
+                                "term": sell.term.value,
+                                "estimated_tax": sell.estimated_tax,
+                                "rationale": "; ".join(sell.rationale),
+                            }
+                            for sell in plan.sells
+                        ]
+                    )
+                    st.subheader("Sell plan")
+                    st.dataframe(sell_df, hide_index=True)
+                else:
+                    st.info("No sells required; existing cash covers allocation.")
+
+                if plan.buys:
+                    buy_df = pd.DataFrame(
+                        [
+                            {
+                                "symbol": buy.symbol,
+                                "target_weight": buy.target_weight,
+                                "target_dollars": buy.target_dollars,
+                                "price": buy.price,
+                                "est_shares": buy.est_shares,
+                            }
+                            for buy in plan.buys
+                        ]
+                    )
+                    st.subheader("Buy targets")
+                    st.dataframe(buy_df, hide_index=True)
+
+                with st.expander("Why this plan?"):
+                    st.write(plan.rationale_summary)
+                    if plan.drift_metrics:
+                        st.write("Drift notes:")
+                        for note in plan.drift_metrics:
+                            st.write("-", note)
+                    if missing_gains_report:
+                        st.write(
+                            "Gains & Losses report missing — assumptions made for realized gains."
+                        )
+
+                sell_csv = format_sells_csv(plan.sells)
+                buy_csv = format_buy_targets_csv(plan.buys)
+                summary_txt = format_transition_summary(plan)
+                st.download_button(
+                    label="Download sell checklist (transition)",
+                    data=sell_csv,
+                    file_name="sell_checklist_transition.csv",
+                    mime="text/csv",
+                )
+                st.download_button(
+                    label="Download buy targets CSV",
+                    data=buy_csv,
+                    file_name="buy_targets_transition.csv",
+                    mime="text/csv",
+                )
+                st.download_button(
+                    label="Download transition summary",
+                    data=summary_txt,
+                    file_name="transition_summary.txt",
+                    mime="text/plain",
+                )

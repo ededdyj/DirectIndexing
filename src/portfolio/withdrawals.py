@@ -1,50 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence
 
-from src.models import (
-    Holding,
-    Lot,
-    RealizedSummary,
-    SellLotRecommendation,
-    Term,
-    WithdrawalProposal,
+from src.models import Holding, Lot, RealizedSummary, Term, WithdrawalProposal
+from src.portfolio.liquidation import (
+    TaxRates,
+    build_sell_candidates,
+    compute_drift_notes,
+    compute_symbol_weights,
+    estimate_available_cash,
+    format_sells_csv,
+    select_sells,
 )
-from src.portfolio.analytics import price_lookup
-
-
-DEFAULT_SHORT_TERM_RATE = 0.32
-DEFAULT_LONG_TERM_RATE = 0.15
-DEFAULT_STATE_RATE = 0.05
-LOSS_CARRY_DISCOUNT = 0.5
-
-
-@dataclass
-class TaxRates:
-    short_term: float = DEFAULT_SHORT_TERM_RATE
-    long_term: float = DEFAULT_LONG_TERM_RATE
-    state: float = DEFAULT_STATE_RATE
-
-
-@dataclass
-class WithdrawalSettings:
-    goal: str = "min_tax"
-    exclude_symbols: Sequence[str] = ()
-    exclude_missing_dates: bool = True
-    cushion_pct: float = 0.01
-    manual_cash: float = 0.0
-
-
-def estimate_available_cash(holdings: Iterable[Holding], manual_cash: float = 0.0) -> float:
-    cash = manual_cash
-    for holding in holdings:
-        if getattr(holding, "is_cash_equivalent", False):
-            if holding.market_value is not None:
-                cash += holding.market_value
-            elif holding.price is not None:
-                cash += holding.price * holding.qty
-    return cash
 
 
 def build_withdrawal_proposal(
@@ -60,27 +27,26 @@ def build_withdrawal_proposal(
     exclude_missing_dates: bool = True,
 ) -> WithdrawalProposal:
     summary = realized_summary or RealizedSummary()
-    price_map = price_lookup(holdings)
     cash_available = estimate_available_cash(holdings, manual_cash=manual_cash)
     buffer_amount = max(withdrawal_amount * cushion_pct, 0.0)
     target_amount = max(0.0, withdrawal_amount + buffer_amount - cash_available)
 
-    candidates, warnings = _build_candidates(
+    candidates, warnings = build_sell_candidates(
         lots,
-        price_map,
+        holdings,
         exclude_symbols=exclude_symbols,
         exclude_missing_dates=exclude_missing_dates,
     )
 
-    symbol_weights = _symbol_weights(holdings)
+    weight_map = compute_symbol_weights(holdings)
 
-    sells, sell_warnings = _select_sells(
+    sells, sell_warnings = select_sells(
         candidates,
         target_amount,
         summary,
         tax_rates,
         goal,
-        symbol_weights,
+        weight_map,
     )
     warnings.extend(sell_warnings)
 
@@ -90,7 +56,7 @@ def build_withdrawal_proposal(
     realized_st = sum(s.gain_loss for s in sells if s.term == Term.SHORT)
     realized_lt = sum(s.gain_loss for s in sells if s.term == Term.LONG)
 
-    drift_notes = _compute_drift_notes(holdings, sells, target_amount)
+    drift_notes = compute_drift_notes(holdings, sells, target_amount)
 
     if target_amount <= 0:
         warnings.append("Requested withdrawal covered by existing cash / sweep balances.")
@@ -383,36 +349,4 @@ def _symbol_weights(holdings: Sequence[Holding]) -> Dict[str, float]:
 
 
 def format_withdrawal_order_csv(proposal: WithdrawalProposal) -> str:
-    import csv
-    from io import StringIO
-
-    buffer = StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(
-        [
-            "Symbol",
-            "Action",
-            "Qty",
-            "Price",
-            "Proceeds",
-            "Basis",
-            "Gain/Loss",
-            "Term",
-            "Rationale",
-        ]
-    )
-    for sell in proposal.sells:
-        writer.writerow(
-            [
-                sell.symbol,
-                "SELL",
-                round(sell.qty, 6),
-                round(sell.price, 4),
-                round(sell.proceeds, 2),
-                round(sell.basis, 2),
-                round(sell.gain_loss, 2),
-                sell.term.value,
-                "; ".join(sell.rationale),
-            ]
-        )
-    return buffer.getvalue()
+    return format_sells_csv(proposal.sells)

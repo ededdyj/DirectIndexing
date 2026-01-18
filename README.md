@@ -76,6 +76,12 @@ The app opens in your browser. Use the sidebar to upload CSVs and adjust TLH thr
 - Outputs include a sortable table with target weights, sector tags (from the universe or your uploaded sector map), summary metrics (holdings count, top-10 concentration, max weight), and warnings whenever filters remove too much of the index. Download both the basket (`target_basket.csv`) and the underlying `strategy.json` for reuse; uploaders let you reload either artifact later.
 - Limitations: universes and screen lists are illustrative starters, not comprehensive index constituents. Update the CSVs as needed for production coverage.
 
+## Strategy Allocation + Transition Planner
+- Once a strategy is defined, the “Allocate & Transition” tab turns that target basket into an actionable plan. Provide an allocation dollar amount, optional cash buffer (percentage or dollar override), and cash-on-hand inputs.
+- Cash equivalents are applied first (unless disabled) so that only the shortfall is funded through tax-aware sells. The existing MinTax ordering (ST losses → LT losses → LT gains → ST gains) is reused, layered with optional drift-aware penalties and user-provided exclusions. Realized gains context from the Gains & Losses CSV is honored, prioritizing offsets for high-rate ST gains.
+- Buy targets convert basket weights into dollar allocations (and estimated shares when prices are available from current holdings). Any symbols lacking prices are surfaced with warnings instead of silent assumptions.
+- Explainability is built-in: funding summaries show cash used vs. needed, lot-level sell tables include rationale + estimated tax, buy targets list target dollars/shares, and the “Why this plan?” panel cites the sequencing logic, realized-gain context, drift notes, and any data warnings. Export ready-to-share files: `sell_checklist_transition.csv`, `buy_targets_transition.csv`, and a human-readable `transition_summary.txt`.
+
 ## CSV expectations
 All headers are normalized (lowercase, underscores), and common synonyms are mapped automatically. The tables below describe the fallback single-table uploads; prefer the combined E*TRADE Portfolio Download format when possible.
 
