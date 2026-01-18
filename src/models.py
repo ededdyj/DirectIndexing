@@ -272,3 +272,37 @@ class TransitionPlan(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     drift_metrics: List[str] = Field(default_factory=list)
     rationale_summary: str = ""
+
+
+class ManageActionSettings(BaseModel):
+    mode: Literal["tlh", "rebalance", "combined"] = "tlh"
+    drift_tolerance_pct: float = 0.01
+    turnover_cap_pct: float = 0.05
+    tax_goal: Literal["min_tax", "balanced", "min_drift"] = "min_tax"
+    tlh_candidate_limit: int = 5
+
+
+class DriftEntry(BaseModel):
+    symbol: str
+    target_weight: float
+    actual_weight: float
+    drift: float
+    sector: Optional[str] = None
+
+
+class DriftSummary(BaseModel):
+    sleeve_value: float
+    max_abs_drift: float
+    total_abs_drift: float
+    overweights: List[DriftEntry] = Field(default_factory=list)
+    underweights: List[DriftEntry] = Field(default_factory=list)
+    sector_drift: List[DriftEntry] = Field(default_factory=list)
+
+
+class StrategyManagePlan(BaseModel):
+    drift_summary: DriftSummary
+    tlh_sells: List[SellLotRecommendation] = Field(default_factory=list)
+    rebalance_sells: List[SellLotRecommendation] = Field(default_factory=list)
+    buy_targets: List[BuyTargetRow] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)

@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 
 from src.models import (
+    ManageActionSettings,
     PortfolioDownloadParseResult,
     RealizedSummary,
     StrategyAllocationRequest,
@@ -35,6 +36,12 @@ from src.portfolio.strategy import (
     build_target_basket,
     export_basket_csv,
     load_universe,
+)
+from src.portfolio.manage import (
+    build_strategy_manage_plan,
+    compute_drift_summary,
+    compute_sleeve_snapshot,
+    format_manage_summary,
 )
 from src.portfolio.transition import (
     build_transition_plan,
@@ -873,3 +880,234 @@ with transition_tab:
                     file_name="transition_summary.txt",
                     mime="text/plain",
                 )
+
+with manage_tab:
+    st.subheader("Manage Strategy")
+    manage_strategy_spec = None
+    manage_basket_df = None
+
+    if session_spec_data:
+        manage_strategy_spec = StrategySpec(**session_spec_data)
+    manage_json_upload = st.file_uploader(
+        "Upload strategy JSON for management",
+        type="json",
+        key="manage_strategy_json",
+    )
+    if manage_json_upload:
+        try:
+            manage_strategy_spec = StrategySpec.model_validate_json(
+                manage_json_upload.read().decode("utf-8")
+            )
+            st.success("Strategy JSON loaded")
+        except Exception as exc:
+            st.error(f"Unable to parse strategy JSON: {exc}")
+
+    if session_basket_records:
+        manage_basket_df = pd.DataFrame(session_basket_records)
+    manage_basket_upload = st.file_uploader(
+        "Upload target basket CSV for management",
+        type="csv",
+        key="manage_basket_upload",
+    )
+    if manage_basket_upload:
+        try:
+            manage_basket_df = pd.read_csv(manage_basket_upload)
+            st.success("Target basket CSV loaded")
+        except Exception as exc:
+            st.error(f"Unable to parse target basket CSV: {exc}")
+
+    if manage_strategy_spec is None or manage_basket_df is None or manage_basket_df.empty:
+        st.info(
+            "Load a strategy + target basket from the Strategy Builder tab or upload files to manage the sleeve."
+        )
+    else:
+        sleeve_value, _, sleeve_weights = compute_sleeve_snapshot(
+            holdings, manage_basket_df
+        )
+        drift_summary = compute_drift_summary(
+            manage_basket_df, sleeve_value, sleeve_weights
+        )
+        drift_cols = st.columns(3)
+        drift_cols[0].metric("Sleeve value", format_currency(drift_summary.sleeve_value))
+        drift_cols[1].metric(
+            "Max drift",
+            f"{drift_summary.max_abs_drift:.2%}",
+        )
+        drift_cols[2].metric(
+            "Total drift",
+            f"{drift_summary.total_abs_drift:.2%}",
+        )
+
+        st.write("Top overweights")
+        overweight_df = pd.DataFrame(
+            [
+                {
+                    "symbol": entry.symbol,
+                    "target_weight": entry.target_weight,
+                    "actual_weight": entry.actual_weight,
+                    "drift": entry.drift,
+                }
+                for entry in drift_summary.overweights
+            ]
+        )
+        if overweight_df.empty:
+            st.caption("No overweights detected.")
+        else:
+            st.dataframe(overweight_df, hide_index=True)
+
+        st.write("Top underweights")
+        underweight_df = pd.DataFrame(
+            [
+                {
+                    "symbol": entry.symbol,
+                    "target_weight": entry.target_weight,
+                    "actual_weight": entry.actual_weight,
+                    "drift": entry.drift,
+                }
+                for entry in drift_summary.underweights
+            ]
+        )
+        if underweight_df.empty:
+            st.caption("No underweights detected.")
+        else:
+            st.dataframe(underweight_df, hide_index=True)
+
+        action_choice = st.selectbox(
+            "Management action",
+            options=["TLH only", "Rebalance only", "Combined"],
+        )
+        mode_map = {
+            "TLH only": "tlh",
+            "Rebalance only": "rebalance",
+            "Combined": "combined",
+        }
+        tolerance = st.slider(
+            "Drift tolerance (%)",
+            min_value=0.0,
+            max_value=5.0,
+            value=1.0,
+            step=0.25,
+        )
+        turnover_cap = st.slider(
+            "Turnover cap (% of sleeve)",
+            min_value=0.0,
+            max_value=20.0,
+            value=5.0,
+            step=0.5,
+        )
+        tax_goal_choice = st.selectbox(
+            "Tax sensitivity",
+            options=["Minimize taxes", "Balanced", "Minimize drift"],
+        )
+        tax_goal_map = {
+            "Minimize taxes": "min_tax",
+            "Balanced": "balanced",
+            "Minimize drift": "min_drift",
+        }
+        tlh_limit = st.slider(
+            "Max TLH candidates",
+            min_value=1,
+            max_value=10,
+            value=3,
+        )
+
+        manage_settings = ManageActionSettings(
+            mode=mode_map[action_choice],
+            drift_tolerance_pct=tolerance / 100.0,
+            turnover_cap_pct=turnover_cap / 100.0,
+            tax_goal=tax_goal_map[tax_goal_choice],
+            tlh_candidate_limit=tlh_limit,
+        )
+
+        plan = build_strategy_manage_plan(
+            holdings,
+            lots,
+            manage_basket_df,
+            manage_strategy_spec,
+            manage_settings,
+            realized_summary,
+        )
+
+        if plan.warnings:
+            st.warning("; ".join(plan.warnings))
+
+        if plan.tlh_sells:
+            st.write("TLH sells")
+            tlh_df = pd.DataFrame(
+                [
+                    {
+                        "symbol": sell.symbol,
+                        "lot_id": sell.lot_id,
+                        "qty": sell.qty,
+                        "proceeds": sell.proceeds,
+                        "gain_loss": sell.gain_loss,
+                        "term": sell.term.value,
+                        "rationale": "; ".join(sell.rationale),
+                    }
+                    for sell in plan.tlh_sells
+                ]
+            )
+            st.dataframe(tlh_df, hide_index=True)
+        else:
+            st.caption("No TLH trades suggested.")
+
+        if plan.rebalance_sells:
+            st.write("Rebalance sells")
+            rebal_df = pd.DataFrame(
+                [
+                    {
+                        "symbol": sell.symbol,
+                        "lot_id": sell.lot_id,
+                        "qty": sell.qty,
+                        "proceeds": sell.proceeds,
+                        "gain_loss": sell.gain_loss,
+                        "term": sell.term.value,
+                        "rationale": "; ".join(sell.rationale),
+                    }
+                    for sell in plan.rebalance_sells
+                ]
+            )
+            st.dataframe(rebal_df, hide_index=True)
+
+        combined_buys = pd.DataFrame(
+            [
+                {
+                    "symbol": buy.symbol,
+                    "target_dollars": buy.target_dollars,
+                    "price": buy.price,
+                    "est_shares": buy.est_shares,
+                }
+                for buy in plan.buy_targets
+            ]
+        )
+        if combined_buys.empty:
+            st.caption("No buy targets proposed.")
+        else:
+            st.write("Buy targets")
+            st.dataframe(combined_buys, hide_index=True)
+
+        with st.expander("Why this plan?"):
+            st.write(format_manage_summary(plan))
+
+        all_sells = plan.tlh_sells + plan.rebalance_sells
+        if all_sells:
+            manage_sell_csv = format_sells_csv(all_sells)
+            st.download_button(
+                label="Download manage sell checklist",
+                data=manage_sell_csv,
+                file_name="manage_sell_checklist.csv",
+                mime="text/csv",
+            )
+        if not combined_buys.empty:
+            st.download_button(
+                label="Download manage buy targets",
+                data=format_buy_targets_csv(plan.buy_targets),
+                file_name="manage_buy_targets.csv",
+                mime="text/csv",
+            )
+        st.download_button(
+            label="Download manage summary",
+            data=format_manage_summary(plan),
+            file_name="manage_summary.txt",
+            mime="text/plain",
+        )
