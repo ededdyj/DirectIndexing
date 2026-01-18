@@ -32,11 +32,19 @@ def load_universe(index_name: str) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Universe file missing: {path}")
     df = pd.read_csv(path)
-    if "symbol" not in df.columns or "weight" not in df.columns:
-        raise ValueError("Universe file must contain 'symbol' and 'weight' columns")
+    required = {"symbol", "weight", "sector"}
+    if not required.issubset(df.columns):
+        raise ValueError(
+            f"Universe file must contain columns {sorted(required)}; found {df.columns.tolist()}"
+        )
     df = df.copy()
     df["symbol"] = df["symbol"].astype(str).str.upper().str.strip()
     df["weight"] = df["weight"].astype(float)
+    total = df["weight"].sum()
+    if not 0.99 <= total <= 1.01:
+        raise ValueError(
+            f"Universe file {path.name} weights sum to {total:.4f}, expected approximately 1.0"
+        )
     return df
 
 

@@ -74,6 +74,7 @@ The app opens in your browser. Use the sidebar to upload CSVs and adjust TLH thr
 - Screens and exclusions are applied deterministically: toggle built-in lists for Oil & Gas, Tobacco, and Weapons (sample symbol files under `data/screens/`), specify tickers to exclude, and optionally paste comma-separated tickers. After filtering, weights are capped at the chosen single-name limit, renormalized, and trimmed to the requested holdings count.
 - Cash equivalents (VMFXX, SPRXX, etc.) are omitted by default so the target basket is fully invested; you can opt to include them when designing cash-plus strategies.
 - Outputs include a sortable table with target weights, sector tags (from the universe or your uploaded sector map), summary metrics (holdings count, top-10 concentration, max weight), and warnings whenever filters remove too much of the index. Download both the basket (`target_basket.csv`) and the underlying `strategy.json` for reuse; uploaders let you reload either artifact later.
+- Universe CSVs under `data/universes/` are refreshed via `scripts/update_universes.py`, which sources holdings directly from iShares IVV (S&P 500), ITOT (Total US), and Slickcharts/Wikipedia (Nasdaq-100 weights with sector mapping). The script validates schema + unit weights before saving.
 - Limitations: universes and screen lists are illustrative starters, not comprehensive index constituents. Update the CSVs as needed for production coverage.
 
 ## Strategy Allocation + Transition Planner
