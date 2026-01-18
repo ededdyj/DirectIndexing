@@ -346,8 +346,14 @@ if issue_entries:
 else:
     st.success("Data health checks passed. TLH enabled.")
 
-tlh_tab, withdrawal_tab, strategy_tab, transition_tab = st.tabs(
-    ["TLH Engine", "Withdrawal Planner", "Strategy Builder", "Allocate & Transition"]
+tlh_tab, withdrawal_tab, strategy_tab, transition_tab, manage_tab = st.tabs(
+    [
+        "TLH Engine",
+        "Withdrawal Planner",
+        "Strategy Builder",
+        "Allocate & Transition",
+        "Manage Strategy",
+    ]
 )
 
 with tlh_tab:
